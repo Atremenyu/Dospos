@@ -49,47 +49,108 @@ const App: React.FC = () => {
 
   // Load initial data
   useEffect(() => {
-    const savedProducts = storage.getProducts();
-    const savedIngredients = storage.getIngredients() || [];
-    const savedCategories = storage.getCategories();
-    const savedTables = storage.getTables();
-    const savedOrders = storage.getOrders();
-    const savedUsers = storage.getUsers();
-    const savedShifts = storage.getShifts();
-    const savedCashShifts = storage.getCashShifts();
-    const savedRoles = storage.getRoles();
-    const savedSettings = storage.getSettings();
+    const loadData = async () => {
+      let serverState: Record<string, any> = {};
+      try {
+        const response = await fetch('/api/db');
+        if (response.ok) {
+          serverState = await response.json();
+          console.log("Estado inicial cargado desde el servidor:", serverState);
+        }
+      } catch (err) {
+        console.error("No se pudo cargar el estado inicial desde el servidor:", err);
+      }
 
-    const rawProducts = savedProducts.length > 0 ? savedProducts : INITIAL_PRODUCTS;
-    const cleanedProducts = rawProducts.map((p: any) => ({
-      ...p,
-      modifierGroups: p.modifierGroups?.filter((mg: any) => 
-        !mg.name.toLowerCase().includes('término') && 
-        !mg.name.toLowerCase().includes('meat')
-      )
-    }));
-    setProducts(cleanedProducts);
-    setIngredients(savedIngredients);
-    setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
-    setTables(savedTables.length > 0 ? savedTables : INITIAL_TABLES);
-    const migratedOrders = savedOrders.map((o: any) => ({
-      ...o,
-      payments: o.payments || o.partialPayments?.map((p: any) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        amount: p.amount,
-        method: p.method,
-        tip: 0,
-        timestamp: p.date || o.date
-      })) || [],
-      tip: o.tip || 0
-    }));
-    setOrders(migratedOrders);
-    setUsers(savedUsers);
-    setShifts(savedShifts);
-    setCashShifts(savedCashShifts);
-    setRoles(savedRoles.length > 0 ? savedRoles : ROLES);
-    setSettings(savedSettings);
-    setIsLoaded(true);
+      const serverHasData = Object.keys(serverState).length > 0;
+
+      const initializeKey = (key: string, localValue: any, fallbackValue: any) => {
+        if (serverHasData && serverState[key] !== undefined) {
+          const data = serverState[key];
+          storage.setLastKnownServerState(key, data);
+          
+          const apiToLocalStorageMap: Record<string, string> = {
+            products: 'dospos_productos',
+            orders: 'dospos_ordenes',
+            categories: 'dospos_categorias',
+            tables: 'dospos_tablas',
+            settings: 'dospos_store_settings',
+            users: 'dospos_usuarios',
+            shifts: 'dospos_turnos',
+            cashShifts: 'dospos_turnos_caja',
+            roles: 'dospos_roles',
+            ingredients: 'dospos_ingredientes',
+            restaurantName: 'dospos_restaurant_name',
+            eventType: 'dospos_event_type',
+          };
+          const lsKey = apiToLocalStorageMap[key];
+          if (lsKey) {
+            if (typeof data === 'string') {
+              localStorage.setItem(lsKey, data);
+            } else {
+              localStorage.setItem(lsKey, JSON.stringify(data));
+            }
+          }
+          return data;
+        } else {
+          return (localValue && (Array.isArray(localValue) ? localValue.length > 0 : true)) ? localValue : fallbackValue;
+        }
+      };
+
+      const savedProducts = initializeKey('products', storage.getProducts(), INITIAL_PRODUCTS);
+      const savedIngredients = initializeKey('ingredients', storage.getIngredients() || [], []);
+      const savedCategories = initializeKey('categories', storage.getCategories(), INITIAL_CATEGORIES);
+      const savedTables = initializeKey('tables', storage.getTables(), INITIAL_TABLES);
+      const savedOrders = initializeKey('orders', storage.getOrders(), []);
+      const savedUsers = initializeKey('users', storage.getUsers(), []);
+      const savedShifts = initializeKey('shifts', storage.getShifts(), []);
+      const savedCashShifts = initializeKey('cashShifts', storage.getCashShifts(), []);
+      const savedRoles = initializeKey('roles', storage.getRoles(), ROLES);
+      const savedSettings = initializeKey('settings', storage.getSettings(), null);
+
+      const rawProducts = savedProducts.length > 0 ? savedProducts : INITIAL_PRODUCTS;
+      const cleanedProducts = rawProducts.map((p: any) => ({
+        ...p,
+        modifierGroups: p.modifierGroups?.filter((mg: any) => 
+          !mg.name.toLowerCase().includes('término') && 
+          !mg.name.toLowerCase().includes('meat')
+        )
+      }));
+      setProducts(cleanedProducts);
+      setIngredients(savedIngredients);
+      setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
+      setTables(savedTables.length > 0 ? savedTables : INITIAL_TABLES);
+      const migratedOrders = savedOrders.map((o: any) => ({
+        ...o,
+        payments: o.payments || o.partialPayments?.map((p: any) => ({
+          id: Math.random().toString(36).substr(2, 9),
+          amount: p.amount,
+          method: p.method,
+          tip: 0,
+          timestamp: p.date || o.date
+        })) || [],
+        tip: o.tip || 0
+      }));
+      setOrders(migratedOrders);
+      setUsers(savedUsers);
+      setShifts(savedShifts);
+      setCashShifts(savedCashShifts);
+      setRoles(savedRoles.length > 0 ? savedRoles : ROLES);
+      
+      if (savedSettings) {
+        setSettings(savedSettings);
+      } else {
+        setSettings({
+          name: initializeKey('restaurantName', storage.getRestaurantName(), 'DosPOS'),
+          eventType: initializeKey('eventType', storage.getEventType(), 'Restaurante'),
+          currency: 'MXN',
+          taxRate: 0,
+        });
+      }
+
+      setIsLoaded(true);
+    };
+
+    loadData();
   }, []);
 
   // Save on changes (individual effects)
