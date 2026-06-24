@@ -1,0 +1,17 @@
+{
+  "name": "DosPOS",
+  "short_name": "DosPOS",
+  "start_url": ".",
+  "display": "fullscreen",
+  "background_color": "#f8fafc",
+  "theme_color": "#dc2626",
+  "description": "Sistema de Punto de Venta DosPOS",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1041/1041883.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+*.db
+.git
+.github
+Dockerfile
+.dockerignore
+.env
+.env.example

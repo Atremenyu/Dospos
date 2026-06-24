@@ -1,0 +1,8 @@
+{
+  "name": "DosPOS",
+  "description": "A comprehensive Point of Sale system for food events, featuring order management, kitchen display (KDS), product CRUD, and sales history with PDF export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
