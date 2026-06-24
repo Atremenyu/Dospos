@@ -13,7 +13,6 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --only=production
 COPY --from=builder /app/dist ./dist
-# Volume for persistent SQLite/JSON database storage
-VOLUME /app/data
+# Volume for persistent SQLite/JSON database storage (Mounted via Railway service settings if needed)
 EXPOSE 3000
 CMD ["npm", "start"]
