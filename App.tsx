@@ -463,6 +463,12 @@ const App: React.FC = () => {
     if (role && role.permissions.length > 0) {
       setView(role.permissions[0]);
     }
+
+    // Automatically check and prompt for box opening if it is closed and user is Admin or Caja
+    const hasOpenShift = cashShifts.some(s => s.status === 'open');
+    if (!hasOpenShift && (user.role === 'Admin' || user.role === 'Caja')) {
+      setShowOpeningModal(true);
+    }
   };
 
   const handleLogout = () => {
@@ -1069,6 +1075,9 @@ const App: React.FC = () => {
             permissions={currentUserRole?.permissions || []}
             currentUser={currentUser}
             onLogout={handleLogout}
+            hasOpenCashShift={hasOpenCashShift}
+            onOpenCashShift={() => setShowOpeningModal(true)}
+            onCloseCashShift={() => setShowClosingModal(true)}
           />
 
           <div className="hidden lg:flex items-center space-x-3">

@@ -15,6 +15,9 @@ interface TabNavigationProps {
   permissions: ViewState[];
   currentUser: User;
   onLogout: () => void;
+  hasOpenCashShift: boolean;
+  onOpenCashShift: () => void;
+  onCloseCashShift: () => void;
 }
 
 const TabNavigation: React.FC<TabNavigationProps> = ({ 
@@ -27,7 +30,10 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   onToggleOrders,
   permissions,
   currentUser,
-  onLogout
+  onLogout,
+  hasOpenCashShift,
+  onOpenCashShift,
+  onCloseCashShift
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -224,6 +230,33 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                     </span>
                   )}
                 </button>
+              </div>
+
+              <div className="mt-8 pt-8 border-t border-slate-900 space-y-2">
+                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-4 mb-2">Arqueo de Caja</div>
+                {hasOpenCashShift ? (
+                  <button
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      setTimeout(() => onCloseCashShift(), 100);
+                    }}
+                    className="w-full flex items-center space-x-4 p-4 rounded-2xl bg-red-600/10 border border-red-600/30 text-red-500 hover:bg-red-600 hover:text-white transition-all font-black text-xs uppercase tracking-widest"
+                  >
+                    <Icons.Lock size={18} />
+                    <span>Cerrar Caja</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      setTimeout(() => onOpenCashShift(), 100);
+                    }}
+                    className="w-full flex items-center space-x-4 p-4 rounded-2xl bg-green-600/10 border border-green-600/30 text-green-500 hover:bg-green-600 hover:text-white transition-all font-black text-xs uppercase tracking-widest"
+                  >
+                    <Icons.Unlock size={18} />
+                    <span>Abrir Caja</span>
+                  </button>
+                )}
               </div>
 
               <div className="mt-8 pt-8 border-t border-slate-900 space-y-2">
