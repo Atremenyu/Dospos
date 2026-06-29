@@ -86,6 +86,7 @@ export interface Order {
   id: string;
   date: string;
   client: string;
+  address?: string;
   table: string;
   payment: PaymentMethod;
   status: OrderStatus;

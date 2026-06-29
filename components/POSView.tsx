@@ -5,6 +5,7 @@ import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayT
 import { Icons } from '../constants';
 import ModifierModal from './ModifierModal';
 import ComboModal from './ComboModal';
+import { getQuickCashOptions } from '../utils/paymentUtils';
 
 interface POSViewProps {
   products: Product[];
@@ -16,7 +17,7 @@ interface POSViewProps {
   onAddToCart: (p: Product, mods?: SelectedModifier[], note?: string, isCombo?: boolean, comboOpts?: ComboOption[]) => void;
   onUpdateQuantity: (id: string, delta: number) => void;
   onUpdateNote: (id: string, note: string) => void;
-  onCheckout: (client: string, table: string, payment: PaymentMethod, type: OrderType, takeawayType?: TakeawayType, tip?: number) => void;
+  onCheckout: (client: string, table: string, payment: PaymentMethod, type: OrderType, takeawayType?: TakeawayType, tip?: number, payLater?: boolean, address?: string) => void;
   onDeliver: (id: string) => void;
   onUpdateItemStatus: (orderId: string, itemIdx: number, status: any) => void;
   onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number) => void;
@@ -35,6 +36,7 @@ const POSView: React.FC<POSViewProps> = ({
   const [activeCategory, setActiveCategory] = useState<Category | 'Todos'>('Todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [client, setClient] = useState('');
+  const [address, setAddress] = useState('');
   const [table, setTable] = useState('');
   const [payment, setPayment] = useState<PaymentMethod>('Efectivo');
   const [orderType, setOrderType] = useState<OrderType>('dine-in');
@@ -43,6 +45,7 @@ const POSView: React.FC<POSViewProps> = ({
   const [showCheckout, setShowCheckout] = useState(false);
   const [cartExpanded, setCartExpanded] = useState(false);
   const [cashReceived, setCashReceived] = useState<string>('');
+  const [payLater, setPayLater] = useState(false);
   const [pendingModifierProduct, setPendingModifierProduct] = useState<Product | null>(null);
   const [pendingComboProduct, setPendingComboProduct] = useState<Product | null>(null);
   const [selectedIsComboForModifier, setSelectedIsComboForModifier] = useState<boolean>(false);
@@ -101,6 +104,13 @@ const POSView: React.FC<POSViewProps> = ({
     }
   }, [takeawayType, orderType]);
 
+  // Reset payLater if takeawayType is uber/didi or orderType is dine-in
+  useEffect(() => {
+    if (orderType === 'dine-in' || takeawayType === 'uber' || takeawayType === 'didi') {
+      setPayLater(false);
+    }
+  }, [orderType, takeawayType]);
+
   const displayCategories: (Category | 'Todos')[] = ['Todos', ...categories];
 
   const filteredProducts = useMemo(() => {
@@ -132,7 +142,7 @@ const POSView: React.FC<POSViewProps> = ({
   const handleCheckoutSubmit = () => {
     // Basic validation for cash payments in POSView
     const tip = parseFloat(tipAmount) || 0;
-    if (payment === 'Efectivo' && orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi') {
+    if (payment === 'Efectivo' && orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && !payLater) {
       const received = parseFloat(cashReceived);
       const required = total + tip;
       if (isNaN(received) || received < required) {
@@ -142,8 +152,9 @@ const POSView: React.FC<POSViewProps> = ({
       }
     }
     
-    onCheckout(client, table, payment, orderType, orderType === 'takeaway' ? takeawayType : undefined, tip);
+    onCheckout(client, table, payment, orderType, orderType === 'takeaway' ? takeawayType : undefined, tip, payLater, orderType === 'takeaway' && takeawayType === 'delivery' ? address : undefined);
     setClient('');
+    setAddress('');
     setTable('');
     setTipAmount('');
     setPayment('Efectivo');
@@ -151,6 +162,7 @@ const POSView: React.FC<POSViewProps> = ({
     setTakeawayType('local');
     setShowCheckout(false);
     setCashReceived('');
+    setPayLater(false);
   };
 
   const hasReadyOrders = useMemo(() => orders.some(o => o.status === 'ready'), [orders]);
@@ -446,6 +458,19 @@ const POSView: React.FC<POSViewProps> = ({
                           value={client} onChange={e => setClient(e.target.value)}
                         />
                       </div>
+
+                      {orderType === 'takeaway' && takeawayType === 'delivery' && (
+                        <div className="relative">
+                          <span className="absolute left-3 top-3.5 text-slate-400">
+                            <Icons.MapPin />
+                          </span>
+                          <input 
+                            type="text" placeholder="Dirección de Envío" 
+                            className="w-full text-sm pl-10 pr-4 py-3 rounded-xl border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-red-600 outline-none transition bg-slate-50 focus:bg-white animate-fade-in"
+                            value={address} onChange={e => setAddress(e.target.value)}
+                          />
+                        </div>
+                      )}
                       
                       {orderType === 'dine-in' ? (
                         <div className="space-y-4">
@@ -542,6 +567,42 @@ const POSView: React.FC<POSViewProps> = ({
                   )}
 
                   {orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && (
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">¿Cuándo se Paga?</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPayLater(false)}
+                          className={`py-3 px-2 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 ${
+                            !payLater
+                            ? 'border-red-600 bg-red-50 text-red-700'
+                            : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'
+                          }`}
+                        >
+                          <div className="p-1.5 rounded-lg bg-red-600 text-white">
+                            <Icons.DollarSign size={14} />
+                          </div>
+                          <span>Pagar Ahora</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPayLater(true)}
+                          className={`py-3 px-2 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 ${
+                            payLater
+                            ? 'border-amber-500 bg-amber-50 text-amber-700'
+                            : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'
+                          }`}
+                        >
+                          <div className="p-1.5 rounded-lg bg-amber-500 text-white">
+                            <Icons.Clock size={14} />
+                          </div>
+                          <span>Al Entregar</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && !payLater && (
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Forma de Pago</h4>
                       <div className="grid grid-cols-1 gap-2">
@@ -577,7 +638,7 @@ const POSView: React.FC<POSViewProps> = ({
                                 )}
                               </button>
 
-                              {isSelected && isCash && (
+                              {isSelected && isCash && !payLater && (
                                 <motion.div 
                                   initial={{ opacity: 0, height: 0 }}
                                   animate={{ opacity: 1, height: 'auto' }}
@@ -616,7 +677,7 @@ const POSView: React.FC<POSViewProps> = ({
                                   </div>
                                   
                                   <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-red-100">
-                                    {[500, 1000, 2000, 5000].map(amount => (
+                                    {getQuickCashOptions(total + (parseFloat(tipAmount) || 0)).map(amount => (
                                       <button 
                                         key={amount}
                                         onClick={() => setCashReceived(amount.toString())}
@@ -695,7 +756,9 @@ const POSView: React.FC<POSViewProps> = ({
                   >
                     {orderType === 'dine-in' 
                       ? (existingOrder ? 'AÑADIR A MESA' : 'ABRIR CUENTA MESA') 
-                      : 'FINALIZAR COBRO'}
+                      : payLater 
+                        ? 'ENVIAR PEDIDO (POR COBRAR)' 
+                        : 'FINALIZAR COBRO'}
                   </button>
                 </div>
               </div>

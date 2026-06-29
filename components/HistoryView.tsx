@@ -651,6 +651,12 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                            <span className="text-slate-400">{new Date(order.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                            <span className="w-1 h-1 bg-slate-200 rounded-full shrink-0"></span>
                            <span className="text-slate-400 truncate max-w-[80px] sm:max-w-none">{order.payment}</span>
+                           {order.address && (
+                             <>
+                               <span className="w-1 h-1 bg-slate-200 rounded-full shrink-0"></span>
+                               <span className="text-amber-600 truncate max-w-[150px] sm:max-w-none">{order.address}</span>
+                             </>
+                           )}
                            {order.client && order.client !== 'Mostrador' && (
                              <>
                                <span className="w-1 h-1 bg-slate-200 rounded-full shrink-0"></span>

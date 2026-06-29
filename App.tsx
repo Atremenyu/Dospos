@@ -28,8 +28,17 @@ const App: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [cashShifts, setCashShifts] = useState<CashShift[]>([]);
   const [roles, setRoles] = useState<UserRole[]>(ROLES);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentShiftId, setCurrentShiftId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem("dospos_current_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [currentShiftId, setCurrentShiftId] = useState<string | null>(() => {
+    return localStorage.getItem("dospos_current_shift_id") || null;
+  });
   
   const [settings, setSettings] = useState<StoreSettings>({
     name: 'DosPOS',
@@ -447,6 +456,7 @@ const App: React.FC = () => {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    localStorage.setItem("dospos_current_user", JSON.stringify(user));
     
     // Start shift
     const newShift: Shift = {
@@ -457,6 +467,7 @@ const App: React.FC = () => {
     };
     setShifts(prev => [newShift, ...prev]);
     setCurrentShiftId(newShift.id);
+    localStorage.setItem("dospos_current_shift_id", newShift.id);
 
     // Set first available view
     const role = roles.find(r => r.name === user.role);
@@ -485,6 +496,8 @@ const App: React.FC = () => {
 
     setCurrentUser(null);
     setCurrentShiftId(null);
+    localStorage.removeItem("dospos_current_user");
+    localStorage.removeItem("dospos_current_shift_id");
     setView('login');
     setShowLogoutConfirm(false);
   };
@@ -728,7 +741,10 @@ const App: React.FC = () => {
     table: string, 
     payment: PaymentMethod, 
     type: OrderType, 
-    takeawayType?: TakeawayType
+    takeawayType?: TakeawayType,
+    tip: number = 0,
+    payLater: boolean = false,
+    address?: string
   ) => {
     if (cart.length === 0) return;
 
@@ -771,12 +787,12 @@ const App: React.FC = () => {
       }
     }
 
-    const isPaidImmediately = type !== 'dine-in';
+    const isPaidImmediately = type !== 'dine-in' && !payLater;
     const newPayment: PaymentRecord[] = isPaidImmediately ? [{
       id: Math.random().toString(36).substr(2, 9),
       method: payment,
       amount: total,
-      tip: 0,
+      tip: tip,
       timestamp: new Date().toISOString()
     }] : [];
 
@@ -784,13 +800,14 @@ const App: React.FC = () => {
       id: Date.now().toString(),
       date: new Date().toISOString(),
       client: finalClient,
+      address: address?.trim() ? address.trim() : undefined,
       table: finalTable,
       payment: isPaidImmediately ? payment : 'Pendiente',
       status: 'pending',
       type,
       takeawayType,
       total,
-      tip: 0,
+      tip: isPaidImmediately ? tip : 0,
       items: cart.map(item => ({ 
         ...item, 
         status: 'pending' as OrderStatus,
@@ -1018,6 +1035,7 @@ const App: React.FC = () => {
   const handleSetupComplete = (adminUser: User) => {
     setUsers([adminUser]);
     setCurrentUser(adminUser);
+    localStorage.setItem("dospos_current_user", JSON.stringify(adminUser));
     setView('central');
     setAdminView('overview');
   };

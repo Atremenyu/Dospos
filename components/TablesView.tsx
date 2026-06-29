@@ -5,6 +5,7 @@ import { Table, Order, PaymentMethod, CartItem } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
 import ConfirmationModal from './ConfirmationModal';
+import { getQuickCashOptions } from '../utils/paymentUtils';
 
 interface TablesViewProps {
   tables: Table[];
@@ -429,7 +430,7 @@ const TablesView: React.FC<TablesViewProps> = ({
                               </div>
                               
                               <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-red-100">
-                                {[500, 1000, 2000, 5000].map(amount => (
+                                {getQuickCashOptions(required).map(amount => (
                                   <button 
                                     key={amount}
                                     onClick={() => setCashReceived(amount.toString())}

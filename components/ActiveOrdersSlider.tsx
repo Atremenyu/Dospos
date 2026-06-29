@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Order, OrderStatus, PaymentMethod } from '../types';
 import { Icons } from '../constants';
+import { getQuickCashOptions } from '../utils/paymentUtils';
 
 interface ActiveOrdersSliderProps {
   isOpen: boolean;
@@ -16,6 +17,16 @@ interface ActiveOrdersSliderProps {
 const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
   isOpen, onClose, orders, onDeliver, onUpdateItemStatus, onPay, onCancel
 }) => {
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
+  const [payingMethod, setPayingMethod] = useState<PaymentMethod | null>(null);
+  const [cashReceived, setCashReceived] = useState<string>('');
+
+  const handleClose = () => {
+    setPayingOrderId(null);
+    setPayingMethod(null);
+    setCashReceived('');
+    onClose();
+  };
   return (
     <AnimatePresence>
       {isOpen && (
@@ -25,7 +36,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
             className="absolute inset-0 bg-black/10 backdrop-blur-[1px] pointer-events-auto"
           />
           
@@ -35,7 +46,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
             dragElastic={0.05}
             onDragEnd={(_, info) => {
               if (info.offset.x > 80 || info.velocity.x > 400) {
-                onClose();
+                handleClose();
               }
             }}
             initial={{ x: '100%' }}
@@ -94,6 +105,11 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                              {isReady ? 'LISTO PARA ENTREGAR' : order.status.toUpperCase()}
                            </span>
                            <span className="text-[8px] font-black uppercase text-slate-400">{order.type === 'dine-in' ? `MESA ${order.table}` : 'LLEVAR'}</span>
+                           <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${
+                             order.isPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                           }`}>
+                             {order.isPaid ? 'PAGADO ✓' : 'POR COBRAR'}
+                           </span>
                         </div>
                         <p className="font-black text-sm uppercase tracking-tight mt-1">{order.client}</p>
                       </div>
@@ -160,6 +176,189 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                        })}
                     </div>
 
+                     {/* Pago al entregar - Solo para órdenes no pagadas */}
+                     {!order.isPaid && (
+                       <div className="px-4 pb-4 pt-3 bg-amber-50 border-t border-amber-100 space-y-3">
+                         <div className="flex justify-between items-center">
+                           <span className="text-[9px] font-black uppercase tracking-wider text-amber-800 flex items-center">
+                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span>
+                             Pago al Entregar (Caja)
+                           </span>
+                           <span className="text-[11px] font-black text-amber-950 font-mono">
+                             Pendiente: ${order.total.toLocaleString()}
+                           </span>
+                         </div>
+                                                   {payingOrderId === order.id && payingMethod ? (
+                            <div className="bg-white p-3 rounded-2xl border border-amber-200/60 space-y-3 shadow-sm col-span-3 w-full animate-in fade-in zoom-in-95 duration-150">
+                              <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                                <span className="text-[10px] font-black uppercase text-slate-800 flex items-center">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span>
+                                  Cobro con {payingMethod.toUpperCase()}
+                                </span>
+                                <button 
+                                  onClick={() => {
+                                    setPayingOrderId(null);
+                                    setPayingMethod(null);
+                                    setCashReceived('');
+                                  }}
+                                  className="text-red-500 hover:text-red-700 text-[10px] font-bold uppercase tracking-wider"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+
+                              {payingMethod === 'Efectivo' ? (
+                                <div className="space-y-2">
+                                  <label className="block text-[9px] font-black uppercase text-slate-400">
+                                    Monto Recibido
+                                  </label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                                    <input 
+                                      type="number"
+                                      value={cashReceived}
+                                      onChange={(e) => setCashReceived(e.target.value)}
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-7 pr-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 font-mono"
+                                      placeholder="0"
+                                      autoFocus
+                                    />
+                                  </div>
+                                  
+                                  {/* Quick cash shortcuts */}
+                                  <div className="flex flex-wrap gap-1">
+                                    {getQuickCashOptions(order.total)
+
+                                      .map(val => (
+                                        <button
+                                          key={val}
+                                          type="button"
+                                          onClick={() => setCashReceived(val.toString())}
+                                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[9px] font-bold text-slate-600 font-mono"
+                                        >
+                                          ${val.toLocaleString()}
+                                        </button>
+                                      ))
+                                    }
+                                  </div>
+
+                                  {/* Change logic */}
+                                  {(() => {
+                                    const rec = parseFloat(cashReceived) || 0;
+                                    const change = rec - order.total;
+                                    if (rec >= order.total) {
+                                      return (
+                                        <div className="bg-green-50 border border-green-100 p-2 rounded-xl flex justify-between items-center text-green-800">
+                                          <span className="text-[9px] font-black uppercase">Cambio:</span>
+                                          <span className="text-xs font-black font-mono">${change.toLocaleString()}</span>
+                                        </div>
+                                      );
+                                    } else if (rec > 0) {
+                                      return (
+                                        <div className="bg-red-50 border border-red-100 p-2 rounded-xl flex justify-between items-center text-red-800">
+                                          <span className="text-[9px] font-black uppercase">Faltan:</span>
+                                          <span className="text-xs font-black font-mono">${(order.total - rec).toLocaleString()}</span>
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+
+                                  <button
+                                    onClick={() => {
+                                      const rec = parseFloat(cashReceived) || 0;
+                                      if (rec < order.total) return;
+                                      onPay(order.id, 'Efectivo');
+                                      setPayingOrderId(null);
+                                      setPayingMethod(null);
+                                      setCashReceived('');
+                                    }}
+                                    disabled={(parseFloat(cashReceived) || 0) < order.total}
+                                    className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm flex items-center justify-center space-x-1"
+                                  >
+                                    <Icons.CheckCircle size={12} />
+                                    <span>Confirmar Pago Recibido</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  <p className="text-[10px] font-bold text-slate-600">
+                                    ¿Confirmar el cobro total de <span className="font-mono text-slate-900">${order.total.toLocaleString()}</span> usando <span className="font-black text-black uppercase">{payingMethod}</span>?
+                                  </p>
+                                  <button
+                                    onClick={() => {
+                                      onPay(order.id, payingMethod);
+                                      setPayingOrderId(null);
+                                      setPayingMethod(null);
+                                      setCashReceived('');
+                                    }}
+                                    className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm flex items-center justify-center space-x-1"
+                                  >
+                                    <Icons.CheckCircle size={12} />
+                                    <span>Sí, Confirmar</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+
+                          <div className="grid grid-cols-3 gap-1.5" style={{ display: payingOrderId === order.id && payingMethod ? 'none' : 'grid' }}>
+                            {(['Efectivo', 'Tarjeta', 'Transferencia'] as PaymentMethod[]).map(method => (
+                              <button
+                                key={method}
+                                onClick={() => {
+                                  setPayingOrderId(order.id);
+                                  setPayingMethod(method);
+                                  if (method === 'Efectivo') {
+                                    setCashReceived('');
+                                  }
+                                }}
+                                className="py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all bg-white hover:bg-amber-100/50 border border-amber-200 text-amber-900 shadow-sm active:scale-95 flex items-center justify-center space-x-1"
+                              >
+                                {method === 'Efectivo' && <Icons.DollarSign size={10} />}
+                                {method === 'Tarjeta' && <Icons.CreditCard size={10} />}
+                                {method === 'Transferencia' && <Icons.History size={10} />}
+                                <span>{method}</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-1.5" style={{ display: 'none' }}>
+                           {false && (['Efectivo', 'Tarjeta', 'Transferencia'] as PaymentMethod[]).map(method => (
+                             <button
+                               key={method}
+                               onClick={() => {
+                                 if (method === 'Efectivo') {
+                                   const receivedStr = prompt(`Registrar Pago en Efectivo\nTotal: $${order.total.toLocaleString()}\n¿Con cuánto paga el cliente?`, order.total.toString());
+                                   if (receivedStr !== null) {
+                                     const received = parseFloat(receivedStr);
+                                     if (isNaN(received) || received < order.total) {
+                                       alert(`Monto insuficiente. Se requiere al menos $${order.total.toLocaleString()}`);
+                                       return;
+                                     }
+                                     const change = received - order.total;
+                                     if (change > 0) {
+                                       alert(`Cambio para el cliente: $${change.toLocaleString()}`);
+                                     }
+                                     onPay(order.id, 'Efectivo');
+                                   }
+                                 } else {
+                                   if (confirm(`¿Registrar pago de $${order.total.toLocaleString()} con ${method}?`)) {
+                                     onPay(order.id, method);
+                                   }
+                                 }
+                               }}
+                               className="py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all bg-white hover:bg-amber-100/50 border border-amber-200 text-amber-900 shadow-sm active:scale-95 flex items-center justify-center space-x-1"
+                             >
+                               {method === 'Efectivo' && <Icons.DollarSign size={10} />}
+                               {method === 'Tarjeta' && <Icons.CreditCard size={10} />}
+                               {method === 'Transferencia' && <Icons.History size={10} />}
+                               <span>{method}</span>
+                             </button>
+                           ))}
+                         </div>
+                       </div>
+                     )}
+
                     <div className="p-4 bg-slate-50 flex gap-2">
                        <button 
                         onClick={() => { onDeliver(order.id); }}
@@ -171,7 +370,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                        >
                          {isReady ? 'MARCAR ENTREGADO ✓' : 'MARCAR ENTREGADO'}
                        </button>
-                       {order.type !== 'dine-in' && (
+                       {false && order.type !== 'dine-in' && (
                          <button 
                           onClick={() => { 
                             const m = prompt('Método de pago (Efectivo, Tarjeta, Transferencia):', 'Efectivo'); 

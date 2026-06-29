@@ -164,6 +164,12 @@ const DispatchView: React.FC<DispatchViewProps> = ({
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
               {order.client} • {new Date(order.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
+            {order.address && (
+              <div className="flex items-center space-x-1 mt-1 text-[9px] font-bold text-red-600 uppercase tracking-wider bg-red-50 px-2 py-0.5 rounded-md w-max">
+                <Icons.MapPin size={10} className="shrink-0" />
+                <span className="truncate max-w-[150px]">{order.address}</span>
+              </div>
+            )}
           </div>
           
           <div className="flex flex-col space-y-2 items-end">
@@ -397,7 +403,8 @@ const DispatchView: React.FC<DispatchViewProps> = ({
             </button>
           )}
 
-          {!isPending && !isPreparing && !isReady && !isDineIn && !order.isPaid && (
+          {/* No payment controls in kitchen comanda */}
+          {false && !isDineIn && !order.isPaid && (
              <div className="space-y-3 pt-3 border-t border-slate-100">
                 <div className="flex justify-between items-center px-1">
                   <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
