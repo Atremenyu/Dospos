@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption } from '../types';
 import { Icons } from '../constants';
@@ -50,6 +50,14 @@ const POSView: React.FC<POSViewProps> = ({
   const [pendingComboProduct, setPendingComboProduct] = useState<Product | null>(null);
   const [selectedIsComboForModifier, setSelectedIsComboForModifier] = useState<boolean>(false);
   const [pendingComboOptionsForModifier, setPendingComboOptionsForModifier] = useState<ComboOption[]>([]);
+
+  const checkoutContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showCheckout && checkoutContainerRef.current) {
+      checkoutContainerRef.current.scrollTop = 0;
+    }
+  }, [showCheckout]);
 
   const handleProductClick = (product: Product) => {
     if (product.hasCombo) {
@@ -424,7 +432,10 @@ const POSView: React.FC<POSViewProps> = ({
 
             {showCheckout ? (
               /* Integrated Checkout Form */
-              <div className="flex-grow overflow-y-auto p-6 space-y-6 animate-in slide-in-from-right-4 duration-300">
+              <div 
+                ref={checkoutContainerRef}
+                className="flex-grow overflow-y-auto p-6 space-y-6 animate-in slide-in-from-right-4 duration-300"
+              >
                 <div className="space-y-4">
                   {/* Miniature Order Type Toggle in Checkout */}
                   <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
@@ -654,7 +665,6 @@ const POSView: React.FC<POSViewProps> = ({
                                           inputMode="decimal"
                                           className="w-full bg-transparent border-none outline-none pl-6 text-2xl font-black tracking-tighter text-black placeholder:text-red-100"
                                           placeholder="0.00"
-                                          autoFocus
                                           value={cashReceived}
                                           onChange={(e) => {
                                             const val = e.target.value.replace(/,/g, '.');
