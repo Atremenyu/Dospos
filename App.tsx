@@ -14,7 +14,7 @@ import { LoginView } from './components/LoginView';
 import { SetupWizard } from './components/SetupWizard';
 import CashOpeningModal from './components/CashOpeningModal';
 import CashClosingModal from './components/CashClosingModal';
-import { printCashShiftTicketHTML } from './services/thermalPrinter';
+import { printCashShiftTicketHTML, printThermalTicketHTML } from './services/thermalPrinter';
 import AdminCRM from './components/AdminCRM';
 
 const App: React.FC = () => {
@@ -871,6 +871,12 @@ const App: React.FC = () => {
     setOrders(prev => [newOrder, ...prev]);
     setCart([]);
     setSelectedTableId(null);
+
+    if (isPaidImmediately) {
+      setTimeout(() => {
+        printThermalTicketHTML(newOrder, settings.name || 'DOSPOS');
+      }, 500);
+    }
     
     // Check if can access dispatch before redirecting, otherwise go to first allowed view
     if (canAccessView('dispatch')) {
@@ -980,6 +986,8 @@ const App: React.FC = () => {
   };
 
   const recordPayment = (orderId: string, amount: number, method: PaymentMethod, tip: number = 0) => {
+    let orderToPrint: Order | null = null;
+
     setOrders(prev => {
       const orderToPay = prev.find(o => o.id === orderId);
       if (!orderToPay) return prev;
@@ -1004,7 +1012,7 @@ const App: React.FC = () => {
 
       return prev.map(o => {
         if (o.id === orderId) {
-          return { 
+          const updatedOrder = { 
             ...o, 
             isPaid: allPaid, 
             payment: allPaid ? method : o.payment, 
@@ -1016,10 +1024,22 @@ const App: React.FC = () => {
               paidQuantity: allPaid ? item.quantity : (item.paidQuantity || 0) + (item.quantity * (amount / o.total))
             }))
           };
+
+          if (allPaid) {
+            orderToPrint = updatedOrder;
+          }
+
+          return updatedOrder;
         }
         return o;
       });
     });
+
+    setTimeout(() => {
+      if (orderToPrint) {
+        printThermalTicketHTML(orderToPrint, settings.name || 'DOSPOS');
+      }
+    }, 500);
   };
 
   const payOrder = (orderId: string, payment: PaymentMethod, tip: number = 0, amount?: number) => {
