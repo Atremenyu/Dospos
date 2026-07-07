@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { CashShift } from '../types';
 import { Icons } from '../constants';
+import { printCashShiftTicketHTML } from '../services/thermalPrinter';
 
 interface CashShiftViewProps {
   cashShifts: CashShift[];
   onOpenSettings: () => void;
+  restaurantName?: string;
 }
 
-const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, onOpenSettings }) => {
+const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, onOpenSettings, restaurantName }) => {
   const [cashSearch, setCashSearch] = useState('');
   const [cashSort, setCashSort] = useState<{ field: keyof CashShift | 'date'; order: 'asc' | 'desc' }>({ field: 'date', order: 'desc' });
   const [expandedCashId, setExpandedCashId] = useState<string | null>(null);
@@ -176,25 +178,100 @@ const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, onOpenSetting
                   {isExpanded && (
                     <tr className="bg-slate-50 border-b border-t border-slate-100">
                       <td colSpan={8} className="px-8 py-6">
-                        <div className="flex flex-col md:flex-row gap-8">
-                          <div className="flex-1 space-y-4">
-                            <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Información Adicional</h4>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                              <div>
-                                <p className="text-[9px] uppercase tracking-widest text-slate-400 font-bold mb-1">ID Turno</p>
-                                <p className="text-xs font-mono text-slate-600 truncate">{shift.id}</p>
+                        <div className="space-y-6">
+                          <div className="flex flex-col md:flex-row gap-8">
+                            <div className="flex-1 space-y-4">
+                              <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Información Adicional</h4>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div>
+                                  <p className="text-[9px] uppercase tracking-widest text-slate-400 font-bold mb-1">ID Turno</p>
+                                  <p className="text-xs font-mono text-slate-600 truncate">{shift.id}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] uppercase tracking-widest text-slate-400 font-bold mb-1">Usuario ID</p>
+                                  <p className="text-xs font-mono text-slate-600 truncate">{shift.userId}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-[9px] uppercase tracking-widest text-slate-400 font-bold mb-1">Usuario ID</p>
-                                <p className="text-xs font-mono text-slate-600 truncate">{shift.userId}</p>
+                              <div className="pt-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    printCashShiftTicketHTML(shift, restaurantName || 'DOSPOS');
+                                  }}
+                                  className="px-4 py-2.5 bg-slate-900 hover:bg-black text-white text-[9px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2 shadow active:scale-95"
+                                >
+                                  <Icons.Printer size={12} />
+                                  <span>{shift.status === 'open' ? 'Imprimir Estado de Turno' : 'Reimprimir Corte (Ticket)'}</span>
+                                </button>
                               </div>
                             </div>
+                            {shift.notes && (
+                              <div className="flex-1 space-y-4">
+                                <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Notas</h4>
+                                <div className="bg-white p-4 rounded-xl border border-slate-200">
+                                  <p className="text-xs font-medium text-slate-700 whitespace-pre-line leading-relaxed">{shift.notes}</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          {shift.notes && (
-                            <div className="flex-1 space-y-4">
-                              <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Notas</h4>
-                              <div className="bg-white p-4 rounded-xl border border-slate-200">
-                                <p className="text-xs font-medium text-slate-700 whitespace-pre-line leading-relaxed">{shift.notes}</p>
+
+                          {shift.status === 'closed' && shift.expectedCash !== undefined && (
+                            <div className="pt-4 border-t border-slate-200/60">
+                              <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase mb-3">Arqueo Detallado por Medio de Pago</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">1. Efectivo (Fondo + Ventas)</p>
+                                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                                    <span>Esperado:</span>
+                                    <span className="font-bold">${(shift.expectedCash || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                                    <span>Contado Real:</span>
+                                    <span className="font-bold">${(shift.actualCash || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs pt-1 border-t border-slate-100 font-black">
+                                    <span>Diferencia:</span>
+                                    <span className={shift.differenceCash && shift.differenceCash < 0 ? 'text-red-600' : 'text-green-600'}>
+                                      {shift.differenceCash && shift.differenceCash >= 0 ? '+' : ''}${(shift.differenceCash || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">2. Tarjeta</p>
+                                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                                    <span>Esperado:</span>
+                                    <span className="font-bold">${(shift.expectedTarjeta || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                                    <span>Contado Real:</span>
+                                    <span className="font-bold">${(shift.actualTarjeta || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs pt-1 border-t border-slate-100 font-black">
+                                    <span>Diferencia:</span>
+                                    <span className={shift.differenceTarjeta && shift.differenceTarjeta < 0 ? 'text-red-600' : 'text-green-600'}>
+                                      {shift.differenceTarjeta && shift.differenceTarjeta >= 0 ? '+' : ''}${(shift.differenceTarjeta || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">3. Transferencia Bancaria</p>
+                                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                                    <span>Esperado:</span>
+                                    <span className="font-bold">${(shift.expectedTransferencia || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                                    <span>Contado Real:</span>
+                                    <span className="font-bold">${(shift.actualTransferencia || 0).toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs pt-1 border-t border-slate-100 font-black">
+                                    <span>Diferencia:</span>
+                                    <span className={shift.differenceTransferencia && shift.differenceTransferencia < 0 ? 'text-red-600' : 'text-green-600'}>
+                                      {shift.differenceTransferencia && shift.differenceTransferencia >= 0 ? '+' : ''}${(shift.differenceTransferencia || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           )}

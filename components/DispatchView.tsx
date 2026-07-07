@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Order, PaymentMethod, Table } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
+import { printThermalTicketHTML } from '../services/thermalPrinter';
 import ConfirmationModal from './ConfirmationModal';
 
 interface DispatchViewProps {
@@ -173,12 +174,22 @@ const DispatchView: React.FC<DispatchViewProps> = ({
           </div>
           
           <div className="flex flex-col space-y-2 items-end">
-             <button 
-              onClick={() => generateTicketPDF(order, restaurantName)}
-              className="p-1 bg-white text-slate-400 border border-slate-100 rounded-lg hover:text-red-600 hover:border-red-600 transition shadow-sm"
-            >
-              <Icons.FileText />
-            </button>
+            <div className="flex space-x-1.5">
+              <button 
+                onClick={() => printThermalTicketHTML(order, restaurantName)}
+                title="Imprimir Ticket Térmico"
+                className="p-1 bg-slate-900 text-white rounded-lg hover:bg-black transition shadow-sm"
+              >
+                <Icons.Printer size={16} />
+              </button>
+              <button 
+                onClick={() => generateTicketPDF(order, restaurantName)}
+                title="Descargar PDF"
+                className="p-1 bg-white text-slate-400 border border-slate-100 rounded-lg hover:text-red-600 hover:border-red-600 transition shadow-sm"
+              >
+                <Icons.FileText size={16} />
+              </button>
+            </div>
             <button 
               onClick={() => {
                 triggerConfirm(

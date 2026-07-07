@@ -122,6 +122,16 @@ export interface CashShift {
   difference?: number;
   status: 'open' | 'closed';
   notes?: string;
+  expectedCash?: number;
+  actualCash?: number;
+  differenceCash?: number;
+  expectedTarjeta?: number;
+  actualTarjeta?: number;
+  differenceTarjeta?: number;
+  expectedTransferencia?: number;
+  actualTransferencia?: number;
+  differenceTransferencia?: number;
+  expectedOtros?: number;
 }
 
 export interface StoreSettings {

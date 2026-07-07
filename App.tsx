@@ -14,6 +14,7 @@ import { LoginView } from './components/LoginView';
 import { SetupWizard } from './components/SetupWizard';
 import CashOpeningModal from './components/CashOpeningModal';
 import CashClosingModal from './components/CashClosingModal';
+import { printCashShiftTicketHTML } from './services/thermalPrinter';
 import AdminCRM from './components/AdminCRM';
 
 const App: React.FC = () => {
@@ -516,24 +517,51 @@ const App: React.FC = () => {
     setView('pos');
   };
 
-  const handleCloseCashShift = (actualAmount: number, notes?: string) => {
+  const handleCloseCashShift = (
+    actualCash: number, 
+    actualTarjeta: number, 
+    actualTransferencia: number, 
+    notes?: string
+  ) => {
+    let closedShift: CashShift | null = null;
+
     setCashShifts(prev => prev.map(s => {
       if (s.status === 'open') {
-        const { expectedAmount } = getCashShiftStats(s);
+        const stats = getCashShiftStats(s);
+        const actualAmount = actualCash + actualTarjeta + actualTransferencia;
         
-        return {
+        closedShift = {
           ...s,
           closingTime: new Date().toISOString(),
+          expectedAmount: stats.expectedAmount,
           actualAmount,
-          expectedAmount,
-          difference: actualAmount - expectedAmount,
+          difference: actualAmount - stats.expectedAmount,
           status: 'closed',
-          notes
+          notes,
+          expectedCash: stats.expectedCash,
+          actualCash,
+          differenceCash: actualCash - stats.expectedCash,
+          expectedTarjeta: stats.expectedTarjeta,
+          actualTarjeta,
+          differenceTarjeta: actualTarjeta - stats.expectedTarjeta,
+          expectedTransferencia: stats.expectedTransferencia,
+          actualTransferencia,
+          differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
+          expectedOtros: stats.expectedOtros
         };
+        return closedShift;
       }
       return s;
     }));
+
     setShowClosingModal(false);
+
+    // Mandar a imprimir el ticket térmico del corte de caja si se generó
+    setTimeout(() => {
+      if (closedShift) {
+        printCashShiftTicketHTML(closedShift, settings.name || 'DOSPOS');
+      }
+    }, 500);
   };
 
   const getCashShiftStats = (shift: CashShift) => {
@@ -543,8 +571,31 @@ const App: React.FC = () => {
       new Date(o.date) > new Date(shift.openingTime)
     );
     const salesTotal = shiftOrders.reduce((acc, o) => acc + o.total, 0);
-    const expectedAmount = shift.initialFund + salesTotal;
-    return { salesTotal, expectedAmount };
+
+    const cashSales = shiftOrders.filter(o => o.payment === 'Efectivo').reduce((acc, o) => acc + o.total, 0);
+    const cardSales = shiftOrders.filter(o => o.payment === 'Tarjeta').reduce((acc, o) => acc + o.total, 0);
+    const transferSales = shiftOrders.filter(o => o.payment === 'Transferencia').reduce((acc, o) => acc + o.total, 0);
+    const otherSales = shiftOrders.filter(o => o.payment !== 'Efectivo' && o.payment !== 'Tarjeta' && o.payment !== 'Transferencia').reduce((acc, o) => acc + o.total, 0);
+
+    const expectedCash = shift.initialFund + cashSales;
+    const expectedTarjeta = cardSales;
+    const expectedTransferencia = transferSales;
+    const expectedOtros = otherSales;
+
+    const expectedAmount = expectedCash + expectedTarjeta + expectedTransferencia + expectedOtros;
+
+    return { 
+      salesTotal, 
+      expectedAmount,
+      expectedCash,
+      expectedTarjeta,
+      expectedTransferencia,
+      expectedOtros,
+      cashSales,
+      cardSales,
+      transferSales,
+      otherSales
+    };
   };
 
   const pendingCount = useMemo(() => 
@@ -1309,6 +1360,10 @@ const App: React.FC = () => {
             expectedAmount={getCashShiftStats(currentOpenCashShift).expectedAmount}
             initialFund={currentOpenCashShift.initialFund}
             salesTotal={getCashShiftStats(currentOpenCashShift).salesTotal}
+            expectedCash={getCashShiftStats(currentOpenCashShift).expectedCash}
+            expectedTarjeta={getCashShiftStats(currentOpenCashShift).expectedTarjeta}
+            expectedTransferencia={getCashShiftStats(currentOpenCashShift).expectedTransferencia}
+            expectedOtros={getCashShiftStats(currentOpenCashShift).expectedOtros}
             onConfirm={handleCloseCashShift}
             onClose={() => setShowClosingModal(false)}
           />

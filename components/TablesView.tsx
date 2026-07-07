@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Table, Order, PaymentMethod, CartItem } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
+import { printThermalTicketHTML } from '../services/thermalPrinter';
 import ConfirmationModal from './ConfirmationModal';
 import { getQuickCashOptions } from '../utils/paymentUtils';
 
@@ -344,20 +345,27 @@ const TablesView: React.FC<TablesViewProps> = ({
                 </div>
 
                 {!isSplitMode && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-2">
                      <button 
                       onClick={() => onSelectTable(managingTable.id)}
-                      className="flex flex-col items-center justify-center p-4 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all active:scale-95 space-y-2 border-b-4 border-slate-700"
+                      className="flex flex-col items-center justify-center p-3 bg-slate-900 text-white rounded-3xl hover:bg-black transition-all active:scale-95 space-y-1.5 border-b-4 border-slate-700"
                      >
-                       <Icons.Cart />
-                       <span className="text-[10px] font-black uppercase tracking-widest">Añadir Items</span>
+                       <Icons.Cart size={18} />
+                       <span className="text-[8px] font-black uppercase tracking-wider text-center leading-tight">Añadir Items</span>
+                     </button>
+                     <button 
+                      onClick={() => printThermalTicketHTML(managingOrder, restaurantName)}
+                      className="flex flex-col items-center justify-center p-3 bg-slate-100 text-slate-800 rounded-3xl hover:bg-slate-200 transition-all active:scale-95 space-y-1.5 border-b-4 border-slate-300"
+                     >
+                       <Icons.Printer size={18} />
+                       <span className="text-[8px] font-black uppercase tracking-wider text-center leading-tight">Pre-cuenta Térmica</span>
                      </button>
                      <button 
                       onClick={() => generateTicketPDF(managingOrder, restaurantName)}
-                      className="flex flex-col items-center justify-center p-4 bg-white border-2 border-slate-200 text-slate-600 rounded-3xl hover:border-red-600 hover:text-red-600 transition-all active:scale-95 space-y-2"
+                      className="flex flex-col items-center justify-center p-3 bg-white border-2 border-slate-200 text-slate-600 rounded-3xl hover:border-red-600 hover:text-red-600 transition-all active:scale-95 space-y-1.5"
                      >
-                       <Icons.FileText />
-                       <span className="text-[10px] font-black uppercase tracking-widest">Imprimir Pre-cuenta</span>
+                       <Icons.FileText size={18} />
+                       <span className="text-[8px] font-black uppercase tracking-wider text-center leading-tight">Pre-cuenta PDF</span>
                      </button>
                   </div>
                 )}

@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Order, Table, CashShift, StoreSettings } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
+import { printThermalTicketHTML } from '../services/thermalPrinter';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Cell, PieChart, Pie, AreaChart, Area 
@@ -779,7 +780,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                         )}
                         <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end space-x-4">
                            <button 
-                            onClick={(e) => { e.stopPropagation(); window.print(); }}
+                            onClick={(e) => { e.stopPropagation(); printThermalTicketHTML(order, restaurantName); }}
                             className="text-[10px] font-black uppercase tracking-widest flex items-center space-x-2 px-6 py-3 bg-white border-2 border-slate-200 rounded-xl hover:bg-black hover:text-white hover:border-black transition-all"
                           >
                             <Icons.Printer /> <span>Imprimir</span>

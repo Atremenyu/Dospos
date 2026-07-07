@@ -236,6 +236,7 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
             <CashShiftView 
               cashShifts={cashShifts}
               onOpenSettings={() => setActiveTab('general')}
+              restaurantName={settings.name}
             />
           </div>
         );

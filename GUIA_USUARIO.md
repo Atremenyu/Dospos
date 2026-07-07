@@ -205,4 +205,64 @@ Este panel exclusivo para administradores controla las reglas operativas y los d
 
 ---
 
+## 🖨️ 8. Integración de Impresión Térmica Directa (Epson TM-T88)
+
+Para garantizar un rendimiento rápido y evitar fallas de red, hemos implementado la **Opción 2: Impresión Térmica Directa (HTML/CSS) vía Driver de Sistema**. Esta opción es la más recomendada para puntos de venta web porque aprovecha el procesador gráfico del sistema operativo y los drivers de la Epson TM-T88 para generar textos vectoriales ultra-nítidos y cortes automáticos perfectos.
+
+### Ventajas de esta implementación:
+*   **Compatibilidad Total**: Funciona perfectamente con tu Mac conectada por USB o Red a la Epson TM-T88.
+*   **Independencia de Red**: No requiere que la impresora tenga soporte de red IP específico ni configuración de certificados SSL para HTTPS.
+*   **Diseño Optimizado**: El ticket térmico se genera con una hoja de estilos CSS específica (`@media print`) para formato estándar de **80mm** (3 pulgadas) de ancho, fuentes monospace de alta legibilidad, márgenes en cero para aprovechar todo el papel, y saltos de línea automáticos.
+*   **Respaldo Asegurado**: Conservas la opción de "Descargar PDF/Bajar Ticket" intacta por si necesitas enviar la cuenta digitalmente o archivarla.
+
+---
+
+### 🛠️ Guía de Configuración Paso a Paso (macOS High Sierra + Google Chrome)
+
+Para que la impresión sea instantánea (sin que aparezca la ventana de confirmación del navegador cada vez), sigue estos sencillos pasos de configuración en tu Mac con macOS High Sierra:
+
+#### Paso 1: Instalar y Configurar la Impresora en macOS
+1. Conecta tu impresora **Epson TM-T88** mediante USB o red a tu Mac.
+2. Descarga e instala el driver oficial de Epson para Mac (Epson TM Series Driver para macOS).
+3. Ve a **Preferencias del Sistema > Impresoras y Escáneres**.
+4. Agrega la impresora TM-T88. Asegúrate de seleccionarla como tu **Impresora Predeterminada**.
+5. Abre las propiedades de la impresora y define el **Tamaño de Papel Predeterminado** como **Roll Paper 80mm x Receipt** (o similar de 80mm de ancho).
+
+#### Paso 2: Activar el Menú Web de CUPS (Si requieres ajustar el corte o márgenes avanzados)
+macOS utiliza el sistema de impresión CUPS. Puedes acceder a configuraciones de hardware muy precisas desde tu navegador:
+1. Abre la Terminal en tu Mac (Aplicaciones > Utilidades > Terminal).
+2. Escribe el comando: `cupsctl WebInterface=yes` y presiona Enter.
+3. Abre tu navegador e ingresa a: `http://localhost:631/printers/`.
+4. Selecciona tu Epson TM-T88, ve a **Set Default Options** (Establecer Opciones Predeterminadas) y configura:
+   *   **Media Size**: `80mm x Receipt` (o la medida de rollo que uses).
+   *   **Paper Cut**: `Document Cut` o `Page Cut` (para que la guillotina de la impresora corte el ticket automáticamente al terminar).
+
+#### Paso 3: Configurar Google Chrome para "Impresión Silenciosa" (Modo Kiosk)
+Si deseas que la impresora imprima **instantáneamente** en cuanto haces clic en el botón, sin abrir ventanas intermedias ni diálogos del sistema:
+1. Asegúrate de cerrar Google Chrome por completo.
+2. Abre la Terminal en tu Mac y ejecuta el siguiente comando para iniciar Chrome con el modo de impresión automática habilitado:
+   ```bash
+   open -a "Google Chrome" --args --kiosk-printing
+   ```
+   *(Nota: También puedes crear un acceso directo o script automatizado en Automator para que se abra de esta forma al encender tu Mac).*
+3. Una vez abierto en este modo, cuando hagas clic en **Imprimir** en el sistema DosPOS, Chrome enviará directamente el comando a tu Epson TM-T88 predeterminada y el ticket saldrá de inmediato con su corte físico correspondiente.
+
+---
+
+### 🚀 Cómo Usar las Nuevas Funciones de Impresión en la App
+
+El sistema ahora cuenta con botones dedicados en color oscuro con el icono de la impresora 🖨️ para una impresión rápida:
+
+1.  **En el Salón (Pre-cuenta de Mesas)**:
+    *   Al hacer clic en una mesa ocupada, verás dos botones: **Pre-cuenta Térmica** (icono de impresora) y **Pre-cuenta PDF** (icono de archivo).
+    *   Presiona **Pre-cuenta Térmica** para mandar el estado de cuenta actual directamente a la Epson TM-T88 de tu mesón de atención.
+2.  **En Despacho (Cocina)**:
+    *   En cada tarjeta de pedido activo, junto al botón de descarga PDF, ahora cuentas con el botón negro de **Imprimir Ticket Térmico** (icono de impresora).
+    *   Presiona este botón para imprimir de inmediato la comanda física para el repartidor o para pegar en la bolsa de despacho.
+3.  **En el Historial de Ventas**:
+    *   Al abrir el desglose de cualquier pedido pasado o venta cerrada, verás el botón de **Imprimir** junto al de "Bajar Ticket".
+    *   Presiona **Imprimir** para reimprimir un comprobante de pago rápidamente en el formato de 80mm.
+
+---
+
 *Nota: Todas las acciones e ingresos se registran de forma automática en el sistema centralizado de auditoría, permitiendo un control transparente de las finanzas de tu restaurante.*
