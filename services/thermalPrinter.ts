@@ -438,6 +438,11 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
       <div class="flex ml-2"><span>Ventas Registradas:</span><span>$${expectedO.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
       ` : ''}
 
+      ${shift.expectedCourtesy && shift.expectedCourtesy > 0 ? `
+      <div class="bold" style="margin-top: 6px;">5. CORTESÍAS</div>
+      <div class="flex ml-2"><span>Monto Autorizado:</span><span>$${shift.expectedCourtesy.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ` : ''}
+
       <div class="border-dashed"></div>
 
       ${shift.notes ? `

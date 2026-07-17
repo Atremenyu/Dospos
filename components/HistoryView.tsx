@@ -707,7 +707,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                     <div className="px-4 sm:px-24 pb-8 animate-in fade-in slide-in-from-top-4 duration-500">
                       <div className="bg-slate-50 border border-slate-200 rounded-[2rem] p-4 sm:p-8 space-y-4 shadow-inner">
                         {order.items.map((item, idx) => (
-                          <div key={idx} className="flex flex-col border-b border-slate-200 last:border-0 pb-3">
+                          <div key={`${item.id}-${idx}`} className="flex flex-col border-b border-slate-200 last:border-0 pb-3">
                             <div className="flex justify-between text-xs font-black uppercase tracking-tight">
                               <span className="text-slate-600 flex items-center">
                                 <span className="bg-white border border-slate-200 w-6 h-6 flex items-center justify-center rounded-lg text-[10px] mr-3">{item.quantity}</span>
@@ -737,7 +737,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                                                     mod.modifierName.toLowerCase().includes('no ') || 
                                                     mod.extraPrice <= 0;
                                   return (
-                                    <span key={midx} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter border ${
+                                    <span key={`${mod.modifierId || mod.modifierName}-${midx}`} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter border ${
                                       isRemoval ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-600 border-slate-200'
                                     }`}>
                                       {isRemoval ? '' : '+ '}{mod.modifierName}

@@ -98,10 +98,14 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    >
       <motion.div 
         initial={{ scale: 0.95, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
+        onClick={(e) => e.stopPropagation()}
         className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl shadow-red-500/10"
       >
         {/* Header */}

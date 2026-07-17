@@ -132,6 +132,7 @@ export interface CashShift {
   actualTransferencia?: number;
   differenceTransferencia?: number;
   expectedOtros?: number;
+  expectedCourtesy?: number;
 }
 
 export interface StoreSettings {

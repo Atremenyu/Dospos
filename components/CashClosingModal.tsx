@@ -10,8 +10,10 @@ interface CashClosingModalProps {
   expectedTarjeta: number;
   expectedTransferencia: number;
   expectedOtros: number;
+  expectedCourtesy: number;
   onConfirm: (actualCash: number, actualTarjeta: number, actualTransferencia: number, notes?: string) => void;
   onClose: () => void;
+  openingTime?: string;
 }
 
 const CashClosingModal: React.FC<CashClosingModalProps> = ({ 
@@ -22,8 +24,10 @@ const CashClosingModal: React.FC<CashClosingModalProps> = ({
   expectedTarjeta,
   expectedTransferencia,
   expectedOtros,
+  expectedCourtesy,
   onConfirm, 
-  onClose 
+  onClose,
+  openingTime
 }) => {
   const [actualCash, setActualCash] = useState<string>('');
   const [actualTarjeta, setActualTarjeta] = useState<string>('');
@@ -68,10 +72,14 @@ const CashClosingModal: React.FC<CashClosingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md overflow-y-auto">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md overflow-y-auto"
+    >
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
+        onClick={(e) => e.stopPropagation()}
         className="bg-white rounded-[2.5rem] sm:rounded-[3rem] w-full max-w-xl my-auto overflow-hidden shadow-2xl border border-slate-100"
       >
         <div className="p-6 sm:p-10">
@@ -80,6 +88,16 @@ const CashClosingModal: React.FC<CashClosingModalProps> = ({
               <Icons.History className="w-7 h-7" />
             </div>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 uppercase tracking-tighter mb-1">Cierre de Caja</h2>
+            {openingTime && (
+              <p className="text-red-600 font-bold text-[9px] sm:text-[10px] uppercase tracking-wider mb-2">
+                Turno abierto desde: {new Date(openingTime).toLocaleString('es-MX', {
+                  day: 'numeric',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </p>
+            )}
             <p className="text-slate-400 font-bold text-[9px] sm:text-[10px] uppercase tracking-widest">Arqueo detallado por medio de pago</p>
           </div>
 
@@ -192,6 +210,15 @@ const CashClosingModal: React.FC<CashClosingModalProps> = ({
                     <Icons.AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>
                       Ventas en Apps (Uber/Didi): <strong>${expectedOtros.toFixed(2)}</strong>. No se cuentan físicamente aquí porque se depositan automáticamente.
+                    </span>
+                  </div>
+                )}
+
+                {expectedCourtesy > 0 && (
+                  <div className="p-3 bg-slate-100 border border-slate-200 rounded-2xl text-slate-700 text-[10px] font-medium flex items-center gap-2">
+                    <Icons.Gift className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span>
+                      Cortesías Autorizadas: <strong>${expectedCourtesy.toFixed(2)}</strong>. Son órdenes de cortesía ($0.00 de ingreso real) y no se cuentan aquí.
                     </span>
                   </div>
                 )}

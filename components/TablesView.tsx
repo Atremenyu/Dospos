@@ -205,8 +205,14 @@ const TablesView: React.FC<TablesViewProps> = ({
 
         {/* Action Panel Modal */}
         {managingTable && managingOrder && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-            <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div 
+            onClick={() => { setManagingTableId(null); setAuthorizedBy(null); }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-300"
+          >
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
               <div className="p-8 bg-red-600 text-white flex justify-between items-start">
                 <div>
                   <h3 className="text-3xl font-black tracking-tighter uppercase">{managingTable.name}</h3>
@@ -287,7 +293,7 @@ const TablesView: React.FC<TablesViewProps> = ({
                       const isFullyPaid = remainingQty <= 0;
                       
                       return (
-                        <div key={idx} className={`flex justify-between items-center p-3 rounded-2xl border transition-all ${isFullyPaid ? 'opacity-50 grayscale' : (isSplitMode && splitQuantities[idx] > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100')}`}>
+                        <div key={`${item.id}-${idx}`} className={`flex justify-between items-center p-3 rounded-2xl border transition-all ${isFullyPaid ? 'opacity-50 grayscale' : (isSplitMode && splitQuantities[idx] > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100')}`}>
                           <div className="flex items-center space-x-3">
                             {isSplitMode && !isFullyPaid ? (
                               <div className="flex items-center space-x-1 bg-white rounded-lg border border-slate-200 p-0.5">
@@ -605,8 +611,18 @@ const TablesView: React.FC<TablesViewProps> = ({
         )}
       </div>
       {showPinModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200">
+        <div 
+          onClick={() => {
+            setShowPinModal(false);
+            setEnteredPin('');
+            setPinError(null);
+          }}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200"
+          >
             <div className="text-center space-y-2">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600">
                 <Icons.Lock size={24} />

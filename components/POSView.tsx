@@ -895,8 +895,18 @@ const POSView: React.FC<POSViewProps> = ({
             )}
             
             {showPinModal && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-                <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200">
+              <div 
+                onClick={() => {
+                  setShowPinModal(false);
+                  setEnteredPin('');
+                  setPinError(null);
+                }}
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300"
+              >
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200"
+                >
                   <div className="text-center space-y-2">
                     <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600">
                       <Icons.Lock size={24} />

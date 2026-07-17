@@ -139,7 +139,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                          const isDelivered = item.status === 'delivered';
                          return (
                            <div 
-                             key={i} 
+                             key={`${item.id}-${i}`}
                              onClick={() => onUpdateItemStatus(order.id, i, isDelivered ? 'ready' : 'delivered')}
                              className={`flex flex-col text-[10px] font-bold transition-all cursor-pointer hover:bg-slate-50 p-1 -mx-1 rounded-lg ${isDelivered ? 'text-slate-300' : 'text-slate-600'}`}
                            >
@@ -166,7 +166,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                                                      mod.modifierName.toLowerCase().includes('no ') || 
                                                      mod.extraPrice <= 0;
                                    return (
-                                     <span key={midx} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter border ${
+                                     <span key={`${mod.modifierId || mod.modifierName}-${midx}`} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter border ${
                                        isRemoval ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-600 border-slate-200'
                                      }`}>
                                        {isRemoval ? '' : '+ '}{mod.modifierName}
@@ -176,7 +176,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                                </div>
                              )}
                              {item.isCombo && item.selectedComboOptions && item.selectedComboOptions.map((opt, oidx) => (
-                               <div key={oidx} className="flex justify-between items-center text-[9px] font-bold text-red-700 ml-8 p-1 -mx-1">
+                               <div key={`combo-${opt.id || opt.label}-${oidx}`} className="flex justify-between items-center text-[9px] font-bold text-red-700 ml-8 p-1 -mx-1">
                                  <span>+ {opt.label}</span>
                                  <span>+${opt.extraPrice.toLocaleString()}</span>
                                </div>

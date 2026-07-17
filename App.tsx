@@ -261,6 +261,26 @@ const App: React.FC = () => {
     let reconnectTimeout: any = null;
     let isDisposed = false;
 
+    const fetchInitialState = async () => {
+      try {
+        console.log("Fetching initial state via HTTP fallback...");
+        const response = await fetch('/api/db');
+        if (response.ok && !isDisposed) {
+          const serverState = await response.json();
+          if (serverState && Object.keys(serverState).length > 0) {
+            console.log("HTTP fallback state loaded successfully!");
+            Object.keys(serverState).forEach((key) => {
+              applyServerUpdate(key, serverState[key]);
+            });
+          }
+        }
+      } catch (err) {
+        console.error("HTTP fallback failed:", err);
+      }
+    };
+
+    fetchInitialState();
+
     const connectWebSocket = () => {
       if (isDisposed) return;
 
@@ -577,66 +597,119 @@ const App: React.FC = () => {
     actualTransferencia: number, 
     notes?: string
   ) => {
-    let closedShift: CashShift | null = null;
+    const openShift = cashShifts.find(s => s.status === 'open');
+    if (!openShift) {
+      console.error("No se encontró ningún turno de caja abierto.");
+      return;
+    }
 
-    setCashShifts(prev => prev.map(s => {
-      if (s.status === 'open') {
-        const stats = getCashShiftStats(s);
-        const actualAmount = actualCash + actualTarjeta + actualTransferencia;
-        
-        closedShift = {
-          ...s,
-          closingTime: new Date().toISOString(),
-          expectedAmount: stats.expectedAmount,
-          actualAmount,
-          difference: actualAmount - stats.expectedAmount,
-          status: 'closed',
-          notes,
-          expectedCash: stats.expectedCash,
-          actualCash,
-          differenceCash: actualCash - stats.expectedCash,
-          expectedTarjeta: stats.expectedTarjeta,
-          actualTarjeta,
-          differenceTarjeta: actualTarjeta - stats.expectedTarjeta,
-          expectedTransferencia: stats.expectedTransferencia,
-          actualTransferencia,
-          differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
-          expectedOtros: stats.expectedOtros
-        };
-        return closedShift;
-      }
-      return s;
-    }));
+    const stats = getCashShiftStats(openShift);
+    const actualAmount = actualCash + actualTarjeta + actualTransferencia;
+    
+    const closedShift: CashShift = {
+      ...openShift,
+      closingTime: new Date().toISOString(),
+      expectedAmount: stats.expectedAmount,
+      actualAmount,
+      difference: actualAmount - stats.expectedAmount,
+      status: 'closed',
+      notes,
+      expectedCash: stats.expectedCash,
+      actualCash,
+      differenceCash: actualCash - stats.expectedCash,
+      expectedTarjeta: stats.expectedTarjeta,
+      actualTarjeta,
+      differenceTarjeta: actualTarjeta - stats.expectedTarjeta,
+      expectedTransferencia: stats.expectedTransferencia,
+      actualTransferencia,
+      differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
+      expectedOtros: stats.expectedOtros,
+      expectedCourtesy: stats.expectedCourtesy
+    };
 
+    setCashShifts(prev => prev.map(s => s.id === openShift.id ? closedShift : s));
     setShowClosingModal(false);
 
-    // Mandar a imprimir el ticket térmico del corte de caja si se generó
-    setTimeout(() => {
-      if (closedShift) {
-        printCashShiftTicketHTML(closedShift, settings.name || 'DOSPOS');
-      }
-    }, 500);
+    // Mandar a imprimir el ticket térmico del corte de caja inmediatamente con el objeto calculado
+    printCashShiftTicketHTML(closedShift, settings.name || 'DOSPOS');
   };
 
   const getCashShiftStats = (shift: CashShift) => {
-    const shiftOrders = orders.filter(o => 
-      o.status === 'delivered' && 
-      o.isPaid && 
-      new Date(o.date) > new Date(shift.openingTime)
-    );
-    const salesTotal = shiftOrders.reduce((acc, o) => acc + o.total, 0);
+    let salesTotal = 0;
+    let cashSales = 0;
+    let cardSales = 0;
+    let transferSales = 0;
+    let otherSales = 0;
+    let courtesySales = 0;
 
-    const cashSales = shiftOrders.filter(o => o.payment === 'Efectivo').reduce((acc, o) => acc + o.total, 0);
-    const cardSales = shiftOrders.filter(o => o.payment === 'Tarjeta').reduce((acc, o) => acc + o.total, 0);
-    const transferSales = shiftOrders.filter(o => o.payment === 'Transferencia').reduce((acc, o) => acc + o.total, 0);
-    const otherSales = shiftOrders.filter(o => o.payment !== 'Efectivo' && o.payment !== 'Tarjeta' && o.payment !== 'Transferencia').reduce((acc, o) => acc + o.total, 0);
+    const shiftOpeningTime = new Date(shift.openingTime).getTime();
+    const shiftClosingTime = shift.closingTime ? new Date(shift.closingTime).getTime() : null;
+
+    orders.forEach(o => {
+      // Excluir órdenes canceladas del corte de caja
+      if (o.status === 'cancelled') return;
+
+      if (o.payments && o.payments.length > 0) {
+        // Si hay registros de pagos explícitos (pagos divididos o actualizados), procesar cada pago
+        o.payments.forEach(p => {
+          const paymentTime = new Date(p.timestamp).getTime();
+          const inShift = paymentTime >= shiftOpeningTime && 
+                          (!shiftClosingTime || paymentTime <= shiftClosingTime);
+          
+          if (inShift) {
+            const amount = p.amount;
+            const method = p.method;
+            if (method !== 'Cortesía') {
+              salesTotal += amount;
+            }
+            if (method === 'Efectivo') {
+              cashSales += amount;
+            } else if (method === 'Tarjeta') {
+              cardSales += amount;
+            } else if (method === 'Transferencia') {
+              transferSales += amount;
+            } else if (method === 'Uber' || method === 'Didi') {
+              otherSales += amount;
+            } else if (method === 'Cortesía') {
+              courtesySales += amount;
+            }
+          }
+        });
+      } else if (o.isPaid) {
+        // Si el pedido está pagado pero no tiene un arreglo de pagos explícito (pedidos anteriores o de legado)
+        const orderTime = new Date(o.date).getTime();
+        const inShift = orderTime >= shiftOpeningTime && 
+                        (!shiftClosingTime || orderTime <= shiftClosingTime);
+        
+        if (inShift) {
+          const amount = o.total;
+          const method = o.payment;
+          if (method !== 'Cortesía') {
+            salesTotal += amount;
+          }
+          if (method === 'Efectivo') {
+            cashSales += amount;
+          } else if (method === 'Tarjeta') {
+            cardSales += amount;
+          } else if (method === 'Transferencia') {
+            transferSales += amount;
+          } else if (method === 'Uber' || method === 'Didi') {
+            otherSales += amount;
+          } else if (method === 'Cortesía') {
+            courtesySales += amount;
+          }
+        }
+      }
+    });
 
     const expectedCash = shift.initialFund + cashSales;
     const expectedTarjeta = cardSales;
     const expectedTransferencia = transferSales;
     const expectedOtros = otherSales;
+    const expectedCourtesy = courtesySales;
 
-    const expectedAmount = expectedCash + expectedTarjeta + expectedTransferencia + expectedOtros;
+    // Expected amount of physical/electronic money in the cash drawer to reconcile (Cash + Cards + Bank Transfers)
+    const expectedAmount = expectedCash + expectedTarjeta + expectedTransferencia;
 
     return { 
       salesTotal, 
@@ -645,10 +718,12 @@ const App: React.FC = () => {
       expectedTarjeta,
       expectedTransferencia,
       expectedOtros,
+      expectedCourtesy,
       cashSales,
       cardSales,
       transferSales,
-      otherSales
+      otherSales,
+      courtesySales
     };
   };
 
@@ -1513,8 +1588,10 @@ const App: React.FC = () => {
             expectedTarjeta={getCashShiftStats(currentOpenCashShift).expectedTarjeta}
             expectedTransferencia={getCashShiftStats(currentOpenCashShift).expectedTransferencia}
             expectedOtros={getCashShiftStats(currentOpenCashShift).expectedOtros}
+            expectedCourtesy={getCashShiftStats(currentOpenCashShift).expectedCourtesy}
             onConfirm={handleCloseCashShift}
             onClose={() => setShowClosingModal(false)}
+            openingTime={currentOpenCashShift.openingTime}
           />
         )}
       </AnimatePresence>

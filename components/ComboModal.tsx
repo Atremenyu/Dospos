@@ -17,10 +17,14 @@ const ComboModal: React.FC<ComboModalProps> = ({ product, onClose, onConfirm }) 
   const totalExtra = selectedOption ? selectedOption.extraPrice : 0;
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    >
       <motion.div 
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
+        onClick={(e) => e.stopPropagation()}
         className="bg-white rounded-[2.5rem] w-full max-w-sm overflow-hidden shadow-2xl"
       >
         <div className="p-8">

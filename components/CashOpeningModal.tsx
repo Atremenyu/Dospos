@@ -17,10 +17,14 @@ const CashShiftModal: React.FC<CashShiftModalProps> = ({ onOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md overflow-y-auto">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md overflow-y-auto"
+    >
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
+        onClick={(e) => e.stopPropagation()}
         className="bg-white rounded-[2rem] sm:rounded-[3rem] w-full max-w-md my-auto overflow-hidden shadow-2xl"
       >
         <div className="p-6 sm:p-10 text-center">

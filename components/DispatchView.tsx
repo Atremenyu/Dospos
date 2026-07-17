@@ -212,7 +212,7 @@ const DispatchView: React.FC<DispatchViewProps> = ({
             const isExtra = status === 'pending' && (order.status === 'preparing' || order.status === 'ready');
 
             return (
-              <React.Fragment key={idx}>
+              <React.Fragment key={`${item.id}-${idx}`}>
                 <div 
                   className={`flex items-start space-x-3 transition-all p-2 -mx-1 rounded-xl group/item ${
                     itemIsDelivered 
@@ -300,7 +300,7 @@ const DispatchView: React.FC<DispatchViewProps> = ({
                                           mod.modifierName.toLowerCase().includes('no ') || 
                                           mod.extraPrice <= 0;
                         return (
-                          <span key={midx} className={`text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-tighter border ${
+                          <span key={`${mod.modifierId || mod.modifierName}-${midx}`} className={`text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-tighter border ${
                             isRemoval 
                               ? 'bg-rose-50 text-rose-700 border-rose-200' 
                               : (isPreparing ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200')
@@ -332,7 +332,7 @@ const DispatchView: React.FC<DispatchViewProps> = ({
               {item.isCombo && (
                 <div className={`flex flex-col space-y-1 ml-9 mt-1 mb-2 ${itemIsDelivered ? 'opacity-40 grayscale-[0.5]' : ''}`}>
                   {item.selectedComboOptions?.map((opt, oidx) => (
-                    <div key={`combo-${oidx}`} className="flex items-start space-x-3 transition-all p-1 -mx-1 rounded-xl">
+                    <div key={`combo-${opt.id || opt.label}-${oidx}`} className="flex items-start space-x-3 transition-all p-1 -mx-1 rounded-xl">
                       <span className={`w-5 h-5 flex-shrink-0 flex items-center justify-center font-black rounded-md text-[8px] transition-colors ${
                         itemIsDelivered ? 'bg-slate-200 text-slate-400' : (isPreparing ? 'bg-red-500 text-white' : 'bg-red-100 text-red-500')
                       }`}>
