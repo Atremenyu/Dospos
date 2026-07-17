@@ -1411,6 +1411,8 @@ const App: React.FC = () => {
         onUpdateItemStatus={updateItemStatus}
         onPay={payOrder}
         onCancel={cancelOrder}
+        users={users}
+        roles={roles}
       />
 
       {/* Global Notification */}

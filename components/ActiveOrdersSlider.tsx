@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Order, OrderStatus, PaymentMethod } from '../types';
+import { Order, OrderStatus, PaymentMethod, User, UserRole } from '../types';
 import { Icons } from '../constants';
 import { getQuickCashOptions } from '../utils/paymentUtils';
 
@@ -12,19 +12,29 @@ interface ActiveOrdersSliderProps {
   onUpdateItemStatus: (orderId: string, itemIdx: number, status: OrderStatus) => void;
   onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number) => void;
   onCancel: (id: string) => void;
+  users: User[];
+  roles: UserRole[];
 }
 
 const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
-  isOpen, onClose, orders, onDeliver, onUpdateItemStatus, onPay, onCancel
+  isOpen, onClose, orders, onDeliver, onUpdateItemStatus, onPay, onCancel, users, roles
 }) => {
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const [payingMethod, setPayingMethod] = useState<PaymentMethod | null>(null);
   const [cashReceived, setCashReceived] = useState<string>('');
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [authorizedBy, setAuthorizedBy] = useState<string | null>(null);
 
   const handleClose = () => {
     setPayingOrderId(null);
     setPayingMethod(null);
     setCashReceived('');
+    setAuthorizedBy(null);
+    setShowPinModal(false);
+    setEnteredPin('');
+    setPinError(null);
     onClose();
   };
   return (
@@ -284,12 +294,19 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                                   <p className="text-[10px] font-bold text-slate-600">
                                     ¿Confirmar el cobro total de <span className="font-mono text-slate-900">${order.total.toLocaleString()}</span> usando <span className="font-black text-black uppercase">{payingMethod}</span>?
                                   </p>
+                                  {payingMethod === 'Cortesía' && authorizedBy && (
+                                    <div className="bg-green-50 border border-green-100 p-2 rounded-xl flex items-center justify-between text-green-800 text-[10px] font-bold">
+                                      <span>AUTORIZADO POR:</span>
+                                      <span className="font-black">{authorizedBy.toUpperCase()}</span>
+                                    </div>
+                                  )}
                                   <button
                                     onClick={() => {
                                       onPay(order.id, payingMethod);
                                       setPayingOrderId(null);
                                       setPayingMethod(null);
                                       setCashReceived('');
+                                      setAuthorizedBy(null);
                                     }}
                                     className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-sm flex items-center justify-center space-x-1"
                                   >
@@ -301,15 +318,24 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                             </div>
                           ) : null}
 
-                          <div className="grid grid-cols-3 gap-1.5" style={{ display: payingOrderId === order.id && payingMethod ? 'none' : 'grid' }}>
-                            {(['Efectivo', 'Tarjeta', 'Transferencia'] as PaymentMethod[]).map(method => (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" style={{ display: payingOrderId === order.id && payingMethod ? 'none' : 'grid' }}>
+                            {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map(method => (
                               <button
                                 key={method}
                                 onClick={() => {
                                   setPayingOrderId(order.id);
-                                  setPayingMethod(method);
-                                  if (method === 'Efectivo') {
-                                    setCashReceived('');
+                                  if (method === 'Cortesía') {
+                                    if (!authorizedBy) {
+                                      setShowPinModal(true);
+                                    } else {
+                                      setPayingMethod(method);
+                                    }
+                                  } else {
+                                    setPayingMethod(method);
+                                    if (method === 'Efectivo') {
+                                      setCashReceived('');
+                                    }
+                                    setAuthorizedBy(null);
                                   }
                                 }}
                                 className="py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all bg-white hover:bg-amber-100/50 border border-amber-200 text-amber-900 shadow-sm active:scale-95 flex items-center justify-center space-x-1"
@@ -317,6 +343,7 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                                 {method === 'Efectivo' && <Icons.DollarSign size={10} />}
                                 {method === 'Tarjeta' && <Icons.CreditCard size={10} />}
                                 {method === 'Transferencia' && <Icons.History size={10} />}
+                                {method === 'Cortesía' && <Icons.Gift size={10} />}
                                 <span>{method}</span>
                               </button>
                             ))}
@@ -399,6 +426,133 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
               )}
             </div>
           </motion.div>
+        </div>
+      )}
+      {showPinModal && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300 pointer-events-auto">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600">
+                <Icons.Lock size={24} />
+              </div>
+              <h3 className="text-xl font-black text-black uppercase tracking-tight">Autorizar Cortesía</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Ingrese PIN de Administrador o Rol Autorizado</p>
+            </div>
+
+            {/* Input Display */}
+            <div className="space-y-2">
+              <div className="flex justify-center space-x-3">
+                {[0, 1, 2, 3].map((idx) => {
+                  const hasChar = enteredPin.length > idx;
+                  return (
+                    <div
+                      key={idx}
+                      className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-xl font-black transition-all ${
+                        hasChar ? 'border-red-600 bg-red-50 text-red-600 shadow-sm' : 'border-slate-200 bg-slate-50'
+                      }`}
+                    >
+                      {hasChar ? '●' : ''}
+                    </div>
+                  );
+                })}
+              </div>
+              {pinError && (
+                <p className="text-center text-red-600 text-[10px] font-black uppercase tracking-widest animate-pulse">{pinError}</p>
+              )}
+            </div>
+
+            {/* Tactile Keypad */}
+            <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => {
+                    if (enteredPin.length < 4) {
+                      const next = enteredPin + num;
+                      setEnteredPin(next);
+                      setPinError(null);
+                      if (next.length === 4) {
+                        const foundUser = users.find(u => u.pin === next);
+                        if (!foundUser) {
+                          setPinError('PIN Incorrecto');
+                          return;
+                        }
+                        const userRoleObj = roles.find(r => r.name === foundUser.role);
+                        const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+                        if (canAuth) {
+                          setAuthorizedBy(foundUser.name);
+                          setPayingMethod('Cortesía');
+                          setShowPinModal(false);
+                          setEnteredPin('');
+                          setPinError(null);
+                        } else {
+                          setPinError('No autorizado para cortesías');
+                        }
+                      }
+                    }
+                  }}
+                  className="w-16 h-16 rounded-2xl bg-slate-50 hover:bg-slate-100 font-black text-lg text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-100"
+                >
+                  {num}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setEnteredPin('');
+                  setPinError(null);
+                }}
+                className="w-16 h-16 rounded-2xl bg-red-50 hover:bg-red-100 font-black text-xs text-red-600 transition-all active:scale-95 border border-red-100 uppercase"
+              >
+                C
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (enteredPin.length < 4) {
+                    const next = enteredPin + '0';
+                    setEnteredPin(next);
+                    setPinError(null);
+                    if (next.length === 4) {
+                      const foundUser = users.find(u => u.pin === next);
+                      if (!foundUser) {
+                        setPinError('PIN Incorrecto');
+                        return;
+                      }
+                      const userRoleObj = roles.find(r => r.name === foundUser.role);
+                      const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+                      if (canAuth) {
+                        setAuthorizedBy(foundUser.name);
+                        setPayingMethod('Cortesía');
+                        setShowPinModal(false);
+                        setEnteredPin('');
+                        setPinError(null);
+                      } else {
+                        setPinError('No autorizado para cortesías');
+                      }
+                    }
+                  }
+                }}
+                className="w-16 h-16 rounded-2xl bg-slate-50 hover:bg-slate-100 font-black text-lg text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-100"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPinModal(false);
+                  setEnteredPin('');
+                  setPinError(null);
+                  setPayingOrderId(null);
+                  setPayingMethod(null);
+                }}
+                className="w-16 h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 font-black text-[10px] text-slate-500 transition-all active:scale-95 uppercase"
+              >
+                Volver
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AnimatePresence>
