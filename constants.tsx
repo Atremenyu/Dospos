@@ -5,7 +5,7 @@ import { Product, Category, User, UserRole } from './types';
 export const INITIAL_CATEGORIES: Category[] = ['Comida', 'Bebida', 'Postre', 'Otros'];
 
 export const ROLES: UserRole[] = [
-  { name: 'Admin', permissions: ['pos', 'tables', 'dispatch', 'central'] },
+  { name: 'Admin', permissions: ['pos', 'tables', 'dispatch', 'central'], allowCourtesy: true },
   { name: 'Cocinero', permissions: ['dispatch'] },
   { name: 'Mesero', permissions: ['tables', 'pos'] },
   { name: 'Caja', permissions: ['pos', 'tables'] }
@@ -178,6 +178,9 @@ export const Icons = {
   ),
   Clock: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width={props.size || "24"} height={props.size || "24"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  ),
+  Gift: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width={props.size || "18"} height={props.size || "18"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
   )
 };
 

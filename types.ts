@@ -63,7 +63,7 @@ export interface CartItem extends Product {
   selectedComboOptions?: ComboOption[];
 }
 
-export type PaymentMethod = 'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Pendiente' | 'Uber' | 'Didi';
+export type PaymentMethod = 'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Pendiente' | 'Uber' | 'Didi' | 'Cortesía';
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
 export type OrderType = 'dine-in' | 'takeaway';
 export type TakeawayType = 'local' | 'delivery' | 'uber' | 'didi';
@@ -153,6 +153,7 @@ export type AdminTabType = 'overview' | 'history' | 'cash' | 'products' | 'categ
 export interface UserRole {
   name: string;
   permissions: ViewState[];
+  allowCourtesy?: boolean;
 }
 
 export interface User {

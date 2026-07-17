@@ -463,23 +463,25 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
   // Role Management State
   const [roleFormName, setRoleFormName] = useState('');
   const [roleFormPermissions, setRoleFormPermissions] = useState<ViewState[]>([]);
+  const [roleFormAllowCourtesy, setRoleFormAllowCourtesy] = useState(false);
 
   const handleSaveRole = () => {
     if (!roleFormName) return;
     
     if (editingId) {
-      setRoles(prev => prev.map(r => r.name === editingId ? { name: roleFormName, permissions: roleFormPermissions } : r));
+      setRoles(prev => prev.map(r => r.name === editingId ? { name: roleFormName, permissions: roleFormPermissions, allowCourtesy: roleFormAllowCourtesy } : r));
       setEditingId(null);
     } else {
       if (roles.some(r => r.name === roleFormName)) {
         alert('Este rol ya existe.');
         return;
       }
-      setRoles(prev => [...prev, { name: roleFormName, permissions: roleFormPermissions }]);
+      setRoles(prev => [...prev, { name: roleFormName, permissions: roleFormPermissions, allowCourtesy: roleFormAllowCourtesy }]);
       setIsAdding(false);
     }
     setRoleFormName('');
     setRoleFormPermissions([]);
+    setRoleFormAllowCourtesy(false);
   };
 
   const deleteRole = (name: string) => {
@@ -1458,6 +1460,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                   setIsAdding(true);
                   setRoleFormName('');
                   setRoleFormPermissions([]);
+                  setRoleFormAllowCourtesy(false);
                 }}
                 className="bg-black text-white px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest flex items-center space-x-2 hover:bg-slate-800 transition shadow-lg"
               >
@@ -1472,7 +1475,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                 <h3 className="text-lg font-black uppercase tracking-widest">{editingId ? 'Editar' : 'Crear'} Rol</h3>
                 <div className="flex space-x-3">
                   <button 
-                    onClick={() => { setIsAdding(false); setEditingId(null); }}
+                    onClick={() => { setIsAdding(false); setEditingId(null); setRoleFormAllowCourtesy(false); }}
                     className="px-4 py-2 bg-slate-100 text-slate-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition"
                   >
                     Cancelar
@@ -1522,6 +1525,31 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                 </div>
               </div>
 
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Permisos Especiales</label>
+                <div className="grid grid-cols-1 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRoleFormAllowCourtesy(!roleFormAllowCourtesy)}
+                    className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${
+                      roleFormAllowCourtesy
+                        ? 'border-red-600 bg-red-50 text-red-900 shadow-md'
+                        : 'border-slate-100 bg-slate-50 text-slate-400 opacity-60'
+                    }`}
+                  >
+                    <div className="text-left">
+                      <span className="font-black text-[10px] uppercase tracking-widest block">Autorizar Cortesías</span>
+                      <span className="text-[8px] text-slate-400 font-bold uppercase tracking-tight mt-0.5 block">Permitir usar su PIN para aprobar cortesías de consumo</span>
+                    </div>
+                    {roleFormAllowCourtesy ? (
+                      <Icons.CheckCircle size={20} className="text-red-600" />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full border-2 border-slate-200" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -1537,6 +1565,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                           setEditingId(role.name);
                           setRoleFormName(role.name);
                           setRoleFormPermissions(role.permissions);
+                          setRoleFormAllowCourtesy(!!role.allowCourtesy);
                           setIsAdding(false);
                         }}
                         className="p-2 text-slate-400 hover:text-black hover:bg-slate-100 rounded-xl"
@@ -1560,6 +1589,11 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                     ))}
                     {role.permissions.length === 0 && (
                       <span className="text-[10px] font-bold text-slate-300 italic">Sin accesos</span>
+                    )}
+                    {role.allowCourtesy && (
+                      <span className="px-2 py-1 bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-widest rounded-lg border border-amber-200 flex items-center gap-1">
+                        🎁 Autoriza Cortesías
+                      </span>
                     )}
                   </div>
                 </div>

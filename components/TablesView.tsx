@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Table, Order, PaymentMethod, CartItem } from '../types';
+import { Table, Order, PaymentMethod, CartItem, User, UserRole } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
 import { printThermalTicketHTML } from '../services/thermalPrinter';
@@ -17,14 +17,20 @@ interface TablesViewProps {
   onCancel: (id: string) => void;
   onDeliver: (id: string) => void;
   restaurantName: string;
+  users: User[];
+  roles: UserRole[];
 }
 
 const TablesView: React.FC<TablesViewProps> = ({ 
-  tables, orders, onSelectTable, onPay, onSplitOrder, onCancel, onDeliver, restaurantName 
+  tables, orders, onSelectTable, onPay, onSplitOrder, onCancel, onDeliver, restaurantName, users, roles
 }) => {
   const [managingTableId, setManagingTableId] = useState<string | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [authorizedBy, setAuthorizedBy] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
   
   // Split Bill State
   const [isSplitMode, setIsSplitMode] = useState(false);
@@ -104,6 +110,7 @@ const TablesView: React.FC<TablesViewProps> = ({
       setManagingTableId(null);
       setTipAmount('');
       setCashReceived('');
+      setAuthorizedBy(null);
     } else {
       setIsSplitMode(false);
       setSplitType('articles');
@@ -111,6 +118,7 @@ const TablesView: React.FC<TablesViewProps> = ({
       setSelectedPayment(null);
       setTipAmount('');
       setCashReceived('');
+      setAuthorizedBy(null);
     }
   };
 
@@ -205,7 +213,7 @@ const TablesView: React.FC<TablesViewProps> = ({
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mt-1">Cliente: {managingOrder.client}</p>
                 </div>
                 <button 
-                  onClick={() => setManagingTableId(null)}
+                  onClick={() => { setManagingTableId(null); setAuthorizedBy(null); }}
                   className="p-2 bg-black/20 rounded-full hover:bg-black/40 transition"
                 >
                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -370,11 +378,11 @@ const TablesView: React.FC<TablesViewProps> = ({
                   </div>
                 )}
 
-                {/* Payment Section */}
+                 {/* Payment Section */}
                 <div className="space-y-4 pt-4 border-t border-slate-100">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Método de Pago</h4>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['Efectivo', 'Tarjeta', 'Transferencia'] as PaymentMethod[]).map(met => {
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map(met => {
                       const isSelected = selectedPayment === met;
                       const isCash = met === 'Efectivo';
                       const remainingTotal = managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0);
@@ -385,19 +393,30 @@ const TablesView: React.FC<TablesViewProps> = ({
                       const required = amountToPay + tip;
 
                       return (
-                        <div key={met} className={isSelected && isCash ? 'col-span-3' : ''}>
+                        <div key={met} className={isSelected && isCash ? 'col-span-2 sm:col-span-4' : ''}>
                           <button 
+                            type="button"
                             onClick={() => {
-                              setSelectedPayment(met);
-                              setCashReceived('');
+                              if (met === 'Cortesía' && !authorizedBy) {
+                                setShowPinModal(true);
+                              } else {
+                                setSelectedPayment(met);
+                                setCashReceived('');
+                                if (met !== 'Cortesía') {
+                                  setAuthorizedBy(null);
+                                }
+                              }
                             }}
-                            className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                            className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all flex flex-col items-center justify-center space-y-0.5 ${
                               isSelected 
                               ? 'border-red-600 bg-red-600 text-white shadow-lg' 
                               : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-200'
                             }`}
                           >
-                            {met}
+                            <span>{met}</span>
+                            {met === 'Cortesía' && authorizedBy && (
+                              <span className="text-[7px] text-green-200 mt-0.5 uppercase tracking-tight block">Aprobado: {authorizedBy}</span>
+                            )}
                           </button>
 
                           {isSelected && isCash && (
@@ -532,11 +551,13 @@ const TablesView: React.FC<TablesViewProps> = ({
                             setManagingTableId(null);
                             setTipAmount('');
                             setNumPeople(2);
+                            setAuthorizedBy(null);
                           }
                         } else {
                           onPay(managingOrder.id, selectedPayment, tip);
                           setManagingTableId(null);
                           setTipAmount('');
+                          setAuthorizedBy(null);
                         }
                       }
                     }}
@@ -583,6 +604,131 @@ const TablesView: React.FC<TablesViewProps> = ({
           </div>
         )}
       </div>
+      {showPinModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600">
+                <Icons.Lock size={24} />
+              </div>
+              <h3 className="text-xl font-black text-black uppercase tracking-tight">Autorizar Cortesía</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Ingrese PIN de Administrador o Rol Autorizado</p>
+            </div>
+
+            {/* Input Display */}
+            <div className="space-y-2">
+              <div className="flex justify-center space-x-3">
+                {[0, 1, 2, 3].map((idx) => {
+                  const hasChar = enteredPin.length > idx;
+                  return (
+                    <div
+                      key={idx}
+                      className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-xl font-black transition-all ${
+                        hasChar ? 'border-red-600 bg-red-50 text-red-600 shadow-sm' : 'border-slate-200 bg-slate-50'
+                      }`}
+                    >
+                      {hasChar ? '●' : ''}
+                    </div>
+                  );
+                })}
+              </div>
+              {pinError && (
+                <p className="text-center text-red-600 text-[10px] font-black uppercase tracking-widest animate-pulse">{pinError}</p>
+              )}
+            </div>
+
+            {/* Tactile Keypad */}
+            <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => {
+                    if (enteredPin.length < 4) {
+                      const next = enteredPin + num;
+                      setEnteredPin(next);
+                      setPinError(null);
+                      if (next.length === 4) {
+                        const foundUser = users.find(u => u.pin === next);
+                        if (!foundUser) {
+                          setPinError('PIN Incorrecto');
+                          return;
+                        }
+                        const userRoleObj = roles.find(r => r.name === foundUser.role);
+                        const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+                        if (canAuth) {
+                          setAuthorizedBy(foundUser.name);
+                          setSelectedPayment('Cortesía');
+                          setShowPinModal(false);
+                          setEnteredPin('');
+                          setPinError(null);
+                        } else {
+                          setPinError('No autorizado para cortesías');
+                        }
+                      }
+                    }
+                  }}
+                  className="w-16 h-16 rounded-2xl bg-slate-50 hover:bg-slate-100 font-black text-lg text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-100"
+                >
+                  {num}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setEnteredPin('');
+                  setPinError(null);
+                }}
+                className="w-16 h-16 rounded-2xl bg-red-50 hover:bg-red-100 font-black text-xs text-red-600 transition-all active:scale-95 border border-red-100 uppercase"
+              >
+                C
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (enteredPin.length < 4) {
+                    const next = enteredPin + '0';
+                    setEnteredPin(next);
+                    setPinError(null);
+                    if (next.length === 4) {
+                      const foundUser = users.find(u => u.pin === next);
+                      if (!foundUser) {
+                        setPinError('PIN Incorrecto');
+                        return;
+                      }
+                      const userRoleObj = roles.find(r => r.name === foundUser.role);
+                      const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+                      if (canAuth) {
+                        setAuthorizedBy(foundUser.name);
+                        setSelectedPayment('Cortesía');
+                        setShowPinModal(false);
+                        setEnteredPin('');
+                        setPinError(null);
+                      } else {
+                        setPinError('No autorizado para cortesías');
+                      }
+                    }
+                  }
+                }}
+                className="w-16 h-16 rounded-2xl bg-slate-50 hover:bg-slate-100 font-black text-lg text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-100"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPinModal(false);
+                  setEnteredPin('');
+                  setPinError(null);
+                }}
+                className="w-16 h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 font-black text-[10px] text-slate-500 transition-all active:scale-95 uppercase"
+              >
+                Volver
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfirmationModal 
         isOpen={confirmState.isOpen}
         onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}

@@ -211,7 +211,7 @@ const App: React.FC = () => {
       }, 1500); // 1.5s delay to let WebSocket sync fully settle
       return () => clearTimeout(timer);
     }
-  }, [isLoaded, orders]);
+  }, [isLoaded]);
 
   // Listen for new orders to play the Kitchen Alarm and for ready orders to play the Ready Sound
   useEffect(() => {
@@ -245,7 +245,7 @@ const App: React.FC = () => {
     orders.forEach(order => {
       const prevOrder = prevOrdersRef.current.find(o => o.id === order.id);
       if (prevOrder) {
-        if (prevOrder.status !== 'ready' && order.status === 'ready') {
+        if (prevOrder.status !== 'ready' && order.status === 'ready' && view !== 'dispatch') {
           playReadyNotificationSound();
         }
       }
@@ -984,134 +984,111 @@ const App: React.FC = () => {
   const playKitchenAlarmSound = () => {
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      
-      const playBell = (startTime: number, duration: number) => {
-        // Bell 1 (high pitch - triangle for piercing harmonics)
+      const now = audioCtx.currentTime;
+
+      // We'll play alternating loud, piercing electronic siren-like beeps ("¡BEEP-BOOP BEEP-BOOP!")
+      const playSirenBurst = (time: number, freq1: number, freq2: number, duration: number) => {
         const osc1 = audioCtx.createOscillator();
-        const mod1 = audioCtx.createOscillator();
-        const modGain1 = audioCtx.createGain();
-        const gain1 = audioCtx.createGain();
-
-        // Bell 2 (mid pitch resonance)
         const osc2 = audioCtx.createOscillator();
-        const mod2 = audioCtx.createOscillator();
-        const modGain2 = audioCtx.createGain();
-        const gain2 = audioCtx.createGain();
+        const gainNode = audioCtx.createGain();
 
-        // Configure Bell 1
-        osc1.type = 'triangle'; // Sharp, metallic edge
-        osc1.frequency.setValueAtTime(1900, startTime);
-        mod1.type = 'sine';
-        mod1.frequency.setValueAtTime(45, startTime); // Faster clapper rate (45Hz) for urgent vibration
-        modGain1.gain.setValueAtTime(300, startTime);  // Deeper modulation for high alert sound
+        osc1.type = 'sawtooth'; // Piercing sawtooth
+        osc2.type = 'square';   // Buzzy square wave
 
-        // Configure Bell 2
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(1400, startTime);
-        mod2.type = 'sine';
-        mod2.frequency.setValueAtTime(45, startTime);
-        modGain2.gain.setValueAtTime(250, startTime);
+        osc1.frequency.setValueAtTime(freq1, time);
+        osc1.frequency.linearRampToValueAtTime(freq2, time + duration);
 
-        // Connect FM modulation for Bell 1
-        mod1.connect(modGain1);
-        modGain1.connect(osc1.frequency);
+        osc2.frequency.setValueAtTime(freq1 * 1.5, time);
+        osc2.frequency.linearRampToValueAtTime(freq2 * 1.5, time + duration);
 
-        // Connect FM modulation for Bell 2
-        mod2.connect(modGain2);
-        modGain2.connect(osc2.frequency);
+        gainNode.gain.setValueAtTime(0, time);
+        gainNode.gain.linearRampToValueAtTime(0.35, time + 0.04); // Fast attention-grabbing attack
+        gainNode.gain.setValueAtTime(0.35, time + duration - 0.04);
+        gainNode.gain.linearRampToValueAtTime(0, time + duration);
 
-        // Connect audio paths
-        osc1.connect(gain1);
-        gain1.connect(audioCtx.destination);
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
 
-        osc2.connect(gain2);
-        gain2.connect(audioCtx.destination);
-
-        // Gain Envelope (Loud, sudden start, slightly longer tail for maximum audibility)
-        gain1.gain.setValueAtTime(0, startTime);
-        gain1.gain.linearRampToValueAtTime(0.25, startTime + 0.03); // Fast, snappy onset
-        gain1.gain.setValueAtTime(0.25, startTime + duration - 0.05);
-        gain1.gain.linearRampToValueAtTime(0, startTime + duration);
-
-        gain2.gain.setValueAtTime(0, startTime);
-        gain2.gain.linearRampToValueAtTime(0.18, startTime + 0.03);
-        gain2.gain.setValueAtTime(0.18, startTime + duration - 0.05);
-        gain2.gain.linearRampToValueAtTime(0, startTime + duration);
-
-        // Start oscillators
-        osc1.start(startTime);
-        mod1.start(startTime);
-        osc2.start(startTime);
-        mod2.start(startTime);
-
-        // Stop oscillators
-        osc1.stop(startTime + duration);
-        mod1.stop(startTime + duration);
-        osc2.stop(startTime + duration);
-        mod2.stop(startTime + duration);
+        osc1.start(time);
+        osc2.start(time);
+        osc1.stop(time + duration);
+        osc2.stop(time + duration);
       };
 
-      const now = audioCtx.currentTime;
-      // Classic loud alarm - 3 urgent bursts: "¡Trrr-riiiing! ¡Trrr-riiiing! ¡Trrr-riiiing!"
-      playBell(now, 0.55);
-      playBell(now + 0.65, 0.55);
-      playBell(now + 1.3, 0.55);
-
+      // 4 quick piercing alternating sweeps for maximum urgency (buzzy alarm texture)
+      playSirenBurst(now, 880, 1100, 0.22);
+      playSirenBurst(now + 0.26, 1100, 880, 0.22);
+      playSirenBurst(now + 0.52, 880, 1100, 0.22);
+      playSirenBurst(now + 0.78, 1100, 880, 0.22);
     } catch (e) {
-      console.warn('Audio notification failed', e);
+      console.warn('Audio kitchen alarm failed', e);
     }
   };
 
   const playReadyNotificationSound = () => {
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      
-      const playBuzz = (startTime: number, duration: number) => {
-        const osc1 = audioCtx.createOscillator();
-        const osc2 = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
+      const now = audioCtx.currentTime;
 
-        osc1.connect(gainNode);
-        osc2.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+      const playBuzzBuzz = (time: number, duration: number) => {
+        // High attention chime
+        const chime = audioCtx.createOscillator();
+        const chime2 = audioCtx.createOscillator();
+        const chimeGain = audioCtx.createGain();
 
-        // Square wave gives that distinct, crisp "buzz" pager character
-        osc1.type = 'square';
-        osc1.frequency.setValueAtTime(980, startTime); // Piercing high frequency
-        
-        // Slightly detuned triangle wave to enrich the harmonic profile and sound wide
-        osc2.type = 'triangle';
-        osc2.frequency.setValueAtTime(986, startTime);
+        chime.type = 'sine';
+        chime.frequency.setValueAtTime(1320, time); // High E6 note
+        chime2.type = 'sine';
+        chime2.frequency.setValueAtTime(1584, time); // High G6 note
 
-        // Fast amplitude modulation (55Hz) to create the signature rapid-vibrating buzz texture
-        const modulator = audioCtx.createOscillator();
-        const modGain = audioCtx.createGain();
-        modulator.type = 'sine';
-        modulator.frequency.setValueAtTime(55, startTime);
-        modGain.gain.setValueAtTime(0.08, startTime);
+        chimeGain.gain.setValueAtTime(0, time);
+        chimeGain.gain.linearRampToValueAtTime(0.2, time + 0.02);
+        chimeGain.gain.exponentialRampToValueAtTime(0.001, time + duration);
 
-        modulator.connect(modGain);
-        modGain.connect(gainNode.gain);
+        chime.connect(chimeGain);
+        chime2.connect(chimeGain);
+        chimeGain.connect(audioCtx.destination);
 
-        // Sharp volume envelope
-        gainNode.gain.setValueAtTime(0, startTime);
-        gainNode.gain.linearRampToValueAtTime(0.18, startTime + 0.01);
-        gainNode.gain.setValueAtTime(0.18, startTime + duration - 0.02);
-        gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+        // Low tactile vibrating buzzer
+        const buzzer = audioCtx.createOscillator();
+        const buzzGain = audioCtx.createGain();
 
-        modulator.start(startTime);
-        osc1.start(startTime);
-        osc2.start(startTime);
+        buzzer.type = 'square';
+        buzzer.frequency.setValueAtTime(120, time); // Low buzzing freq
 
-        modulator.stop(startTime + duration);
-        osc1.stop(startTime + duration);
-        osc2.stop(startTime + duration);
+        // Rapid flutter modulation for distinct vibrating pager texture
+        const buzzMod = audioCtx.createOscillator();
+        const buzzModGain = audioCtx.createGain();
+        buzzMod.type = 'sawtooth';
+        buzzMod.frequency.setValueAtTime(75, time); // 75Hz rapid flutter
+        buzzModGain.gain.setValueAtTime(0.12, time);
+
+        buzzMod.connect(buzzModGain);
+        buzzModGain.connect(buzzGain.gain);
+
+        buzzGain.gain.setValueAtTime(0, time);
+        buzzGain.gain.linearRampToValueAtTime(0.18, time + 0.01);
+        buzzGain.gain.setValueAtTime(0.18, time + duration - 0.02);
+        buzzGain.gain.linearRampToValueAtTime(0, time + duration);
+
+        buzzer.connect(buzzGain);
+        buzzGain.connect(audioCtx.destination);
+
+        chime.start(time);
+        chime2.start(time);
+        buzzer.start(time);
+        buzzMod.start(time);
+
+        chime.stop(time + duration);
+        chime2.stop(time + duration);
+        buzzer.stop(time + duration);
+        buzzMod.stop(time + duration);
       };
 
-      const now = audioCtx.currentTime;
-      // Double urgent attention buzz: "Bzzzt! Bzzzt!"
-      playBuzz(now, 0.20);
-      playBuzz(now + 0.28, 0.20);
+      // Two rapid, crisp tactile pager "buzz buzz" alarms with dual chimes
+      playBuzzBuzz(now, 0.22);
+      playBuzzBuzz(now + 0.28, 0.22);
     } catch (e) {
       console.warn('Audio ready notification failed', e);
     }
@@ -1356,6 +1333,8 @@ const App: React.FC = () => {
               onPay={payOrder}
               onCancel={cancelOrder}
               onToggleOrders={() => setShowOrdersSlider(true)}
+              users={users}
+              roles={roles}
             />
           )}
           {view === 'central' && canAccessView('central') && (
@@ -1413,6 +1392,8 @@ const App: React.FC = () => {
               onCancel={cancelOrder}
               onDeliver={deliverOrder}
               restaurantName={settings.name}
+              users={users}
+              roles={roles}
             />
           )}
         </div>

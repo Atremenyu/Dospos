@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption } from '../types';
+import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption, User, UserRole } from '../types';
 import { Icons } from '../constants';
 import ModifierModal from './ModifierModal';
 import ComboModal from './ComboModal';
@@ -26,12 +26,14 @@ interface POSViewProps {
   hasOpenCashShift: boolean;
   onOpenShift: () => void;
   onCloseShift: () => void;
+  users: User[];
+  roles: UserRole[];
 }
 
 const POSView: React.FC<POSViewProps> = ({ 
   products, categories, cart, orders, tables, initialTableId,
   onAddToCart, onUpdateQuantity, onUpdateNote, onCheckout, onDeliver, onUpdateItemStatus, onPay, onCancel,
-  onToggleOrders, hasOpenCashShift, onOpenShift, onCloseShift
+  onToggleOrders, hasOpenCashShift, onOpenShift, onCloseShift, users, roles
 }) => {
   const [activeCategory, setActiveCategory] = useState<Category | 'Todos'>('Todos');
   const [searchTerm, setSearchTerm] = useState('');
@@ -46,6 +48,10 @@ const POSView: React.FC<POSViewProps> = ({
   const [cartExpanded, setCartExpanded] = useState(false);
   const [cashReceived, setCashReceived] = useState<string>('');
   const [payLater, setPayLater] = useState(false);
+  const [authorizedBy, setAuthorizedBy] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
   const [pendingModifierProduct, setPendingModifierProduct] = useState<Product | null>(null);
   const [pendingComboProduct, setPendingComboProduct] = useState<Product | null>(null);
   const [selectedIsComboForModifier, setSelectedIsComboForModifier] = useState<boolean>(false);
@@ -112,12 +118,12 @@ const POSView: React.FC<POSViewProps> = ({
     }
   }, [takeawayType, orderType]);
 
-  // Reset payLater if takeawayType is uber/didi or orderType is dine-in
+  // Reset payLater if takeawayType is uber/didi
   useEffect(() => {
-    if (orderType === 'dine-in' || takeawayType === 'uber' || takeawayType === 'didi') {
+    if (takeawayType === 'uber' || takeawayType === 'didi') {
       setPayLater(false);
     }
-  }, [orderType, takeawayType]);
+  }, [takeawayType]);
 
   const displayCategories: (Category | 'Todos')[] = ['Todos', ...categories];
 
@@ -171,6 +177,7 @@ const POSView: React.FC<POSViewProps> = ({
     setShowCheckout(false);
     setCashReceived('');
     setPayLater(false);
+    setAuthorizedBy(null);
   };
 
   const hasReadyOrders = useMemo(() => orders.some(o => o.status === 'ready'), [orders]);
@@ -577,7 +584,7 @@ const POSView: React.FC<POSViewProps> = ({
                     </div>
                   )}
 
-                  {orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && (
+                  {((orderType === 'dine-in') || (orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi')) && (
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">¿Cuándo se Paga?</h4>
                       <div className="grid grid-cols-2 gap-2">
@@ -613,20 +620,28 @@ const POSView: React.FC<POSViewProps> = ({
                     </div>
                   )}
 
-                  {orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && !payLater && (
+                  {((orderType === 'dine-in') || (orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi')) && !payLater && (
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Forma de Pago</h4>
                       <div className="grid grid-cols-1 gap-2">
-                        {(['Efectivo', 'Tarjeta', 'Transferencia'] as PaymentMethod[]).map(method => {
+                        {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map(method => {
                           const isSelected = payment === method;
                           const isCash = method === 'Efectivo';
                           
                           return (
                             <div key={method} className="space-y-2">
                               <button
+                                type="button"
                                 onClick={() => {
-                                  setPayment(method);
-                                  setCashReceived('');
+                                  if (method === 'Cortesía' && !authorizedBy) {
+                                    setShowPinModal(true);
+                                  } else {
+                                    setPayment(method);
+                                    setCashReceived('');
+                                    if (method !== 'Cortesía') {
+                                      setAuthorizedBy(null);
+                                    }
+                                  }
                                 }}
                                 className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
                                   isSelected 
@@ -639,8 +654,14 @@ const POSView: React.FC<POSViewProps> = ({
                                     {method === 'Efectivo' && <Icons.DollarSign size={18} />}
                                     {method === 'Tarjeta' && <Icons.CreditCard size={18} />}
                                     {method === 'Transferencia' && <Icons.Smartphone size={18} />}
+                                    {method === 'Cortesía' && <Icons.Gift size={18} />}
                                   </div>
-                                  <span className="font-black text-xs uppercase tracking-tight">{method}</span>
+                                  <div className="text-left">
+                                    <span className="font-black text-xs uppercase tracking-tight block">{method}</span>
+                                    {method === 'Cortesía' && authorizedBy && (
+                                      <span className="text-[8px] font-bold text-green-600 uppercase tracking-tight block">Autorizado por: {authorizedBy}</span>
+                                    )}
+                                  </div>
                                 </div>
                                 {isSelected && (
                                   <div className="text-red-600">
@@ -871,6 +892,132 @@ const POSView: React.FC<POSViewProps> = ({
                 onClose={() => setPendingModifierProduct(null)}
                 onConfirm={handleModifierConfirm}
               />
+            )}
+            
+            {showPinModal && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+                <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl border-2 border-red-600 overflow-hidden p-6 space-y-6 animate-in zoom-in-95 duration-200">
+                  <div className="text-center space-y-2">
+                    <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600">
+                      <Icons.Lock size={24} />
+                    </div>
+                    <h3 className="text-xl font-black text-black uppercase tracking-tight">Autorizar Cortesía</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Ingrese PIN de Administrador o Rol Autorizado</p>
+                  </div>
+
+                  {/* Input Display */}
+                  <div className="space-y-2">
+                    <div className="flex justify-center space-x-3">
+                      {[0, 1, 2, 3].map((idx) => {
+                        const hasChar = enteredPin.length > idx;
+                        return (
+                          <div
+                            key={idx}
+                            className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-xl font-black transition-all ${
+                              hasChar ? 'border-red-600 bg-red-50 text-red-600 shadow-sm' : 'border-slate-200 bg-slate-50'
+                            }`}
+                          >
+                            {hasChar ? '●' : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {pinError && (
+                      <p className="text-center text-red-600 text-[10px] font-black uppercase tracking-widest animate-pulse">{pinError}</p>
+                    )}
+                  </div>
+
+                  {/* Tactile Keypad */}
+                  <div className="grid grid-cols-3 gap-3 max-w-[280px] mx-auto">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => {
+                          if (enteredPin.length < 4) {
+                            const next = enteredPin + num;
+                            setEnteredPin(next);
+                            setPinError(null);
+                            if (next.length === 4) {
+                              const foundUser = users.find(u => u.pin === next);
+                              if (!foundUser) {
+                                setPinError('PIN Incorrecto');
+                                return;
+                              }
+                              const userRoleObj = roles.find(r => r.name === foundUser.role);
+                              const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+                              if (canAuth) {
+                                setAuthorizedBy(foundUser.name);
+                                setPayment('Cortesía');
+                                setShowPinModal(false);
+                                setEnteredPin('');
+                                setPinError(null);
+                              } else {
+                                setPinError('No autorizado para cortesías');
+                              }
+                            }
+                          }
+                        }}
+                        className="w-16 h-16 rounded-2xl bg-slate-50 hover:bg-slate-100 font-black text-lg text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-100"
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnteredPin('');
+                        setPinError(null);
+                      }}
+                      className="w-16 h-16 rounded-2xl bg-red-50 hover:bg-red-100 font-black text-xs text-red-600 transition-all active:scale-95 border border-red-100 uppercase"
+                    >
+                      C
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (enteredPin.length < 4) {
+                          const next = enteredPin + '0';
+                          setEnteredPin(next);
+                          setPinError(null);
+                          if (next.length === 4) {
+                            const foundUser = users.find(u => u.pin === next);
+                            if (!foundUser) {
+                              setPinError('PIN Incorrecto');
+                              return;
+                            }
+                            const userRoleObj = roles.find(r => r.name === foundUser.role);
+                            const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+                            if (canAuth) {
+                              setAuthorizedBy(foundUser.name);
+                              setPayment('Cortesía');
+                              setShowPinModal(false);
+                              setEnteredPin('');
+                              setPinError(null);
+                            } else {
+                              setPinError('No autorizado para cortesías');
+                            }
+                          }
+                        }
+                      }}
+                      className="w-16 h-16 rounded-2xl bg-slate-50 hover:bg-slate-100 font-black text-lg text-slate-800 transition-all active:scale-95 shadow-sm border border-slate-100"
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPinModal(false);
+                        setEnteredPin('');
+                        setPinError(null);
+                      }}
+                      className="w-16 h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 font-black text-[10px] text-slate-500 transition-all active:scale-95 uppercase"
+                    >
+                      Volver
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
             
             {pendingComboProduct && (
