@@ -36,6 +36,27 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   onCloseCashShift
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<string>(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
+  );
+
+  const requestNotifPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const res = await Notification.requestPermission();
+        setNotifPermission(res);
+        if (res === 'granted') {
+          new Notification('🔔 DosPOS', {
+            body: '¡Notificaciones de cocina y caja activadas en este dispositivo!',
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+          });
+        }
+      } catch (err) {
+        console.error("Error requesting notification permission:", err);
+      }
+    }
+  };
 
   const tabs = [
     { id: 'pos', icon: <Icons.Cart />, label: 'Venta' },
@@ -270,6 +291,51 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                     <p className="text-xs font-black text-white uppercase tracking-tight truncate">{currentUser.name}</p>
                   </div>
                 </div>
+                {notifPermission !== 'unsupported' && (
+                  <button
+                    onClick={() => {
+                      if (notifPermission === 'default') {
+                        requestNotifPermission();
+                      } else if (notifPermission === 'granted') {
+                        new Notification('🔔 DosPOS', {
+                          body: '¡Notificaciones del sistema activadas correctamente!',
+                          icon: '/favicon.ico',
+                        });
+                      } else {
+                        alert("Las notificaciones están bloqueadas en la configuración de su navegador. Por favor, habilítelas manualmente.");
+                      }
+                    }}
+                    className={`w-full flex items-center space-x-4 p-4 rounded-2xl transition-all font-black text-xs uppercase tracking-widest mt-2 border ${
+                      notifPermission === 'default'
+                        ? 'bg-amber-600/10 border-amber-500/30 text-amber-500 animate-pulse'
+                        : notifPermission === 'granted'
+                        ? 'bg-green-600/10 border-green-500/30 text-green-500'
+                        : 'bg-red-600/10 border-red-500/30 text-red-500 opacity-60'
+                    }`}
+                  >
+                    {notifPermission === 'denied' ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m13.73 21a1.9 1.9 0 0 1-3.46 0" />
+                        <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
+                        <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
+                        <path d="M18 8a6 6 0 0 0-9.33-5" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                      </svg>
+                    )}
+                    <span>
+                      {notifPermission === 'default'
+                        ? 'Activar Notificaciones'
+                        : notifPermission === 'granted'
+                        ? 'Notificaciones Activas'
+                        : 'Notif. Bloqueadas'}
+                    </span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setIsSidebarOpen(false);

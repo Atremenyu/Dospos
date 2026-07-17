@@ -59,6 +59,80 @@ const App: React.FC = () => {
   const prevOrdersRef = useRef<Order[]>([]);
   const isInitialLoadRef = useRef(true);
 
+  // Notification state & utility methods
+  const [notificationPermission, setNotificationPermission] = useState<string>('default');
+
+  useEffect(() => {
+    if (!('Notification' in window)) {
+      setNotificationPermission('unsupported');
+    } else {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  const triggerNativeNotification = (title: string, body: string, tag?: string) => {
+    if (!('Notification' in window)) return;
+    
+    if (Notification.permission === 'granted') {
+      try {
+        const options: any = {
+          body,
+          tag,
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+          vibrate: [200, 100, 200],
+          requireInteraction: false,
+        };
+
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification(title, options);
+          }).catch(() => {
+            new Notification(title, options);
+          });
+        } else {
+          new Notification(title, options);
+        }
+      } catch (err) {
+        console.error("Error displaying notification:", err);
+      }
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) return 'unsupported';
+    
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        triggerNativeNotification('🔔 DosPOS', '¡Notificaciones de cocina y caja activadas con éxito!');
+      }
+      return permission;
+    } catch (err) {
+      console.error("Error requesting notification permission:", err);
+    }
+    return Notification.permission;
+  };
+
+  // Auto request notification permission on first interaction
+  useEffect(() => {
+    const handleFirstClick = () => {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then((permission) => {
+          setNotificationPermission(permission);
+          if (permission === 'granted') {
+            triggerNativeNotification('🔔 DosPOS', '¡Notificaciones de cocina y caja activadas con éxito!');
+          }
+        }).catch(err => console.warn("Auto notification permission request failed:", err));
+      }
+      window.removeEventListener('click', handleFirstClick);
+    };
+
+    window.addEventListener('click', handleFirstClick);
+    return () => window.removeEventListener('click', handleFirstClick);
+  }, []);
+
   // Load initial data
   useEffect(() => {
     const loadData = async () => {
@@ -237,16 +311,29 @@ const App: React.FC = () => {
       });
     }
 
-    if (hasNewKitchenContent && view === 'dispatch') {
-      playKitchenAlarmSound();
+    if (hasNewKitchenContent) {
+      if (view === 'dispatch') {
+        playKitchenAlarmSound();
+      }
+      triggerNativeNotification(
+        '🚨 NUEVO PEDIDO / ACTUALIZACIÓN',
+        'Hay comandas listas para preparar en cocina.'
+      );
     }
 
     // Check if any existing order changed its status to 'ready'
     orders.forEach(order => {
       const prevOrder = prevOrdersRef.current.find(o => o.id === order.id);
       if (prevOrder) {
-        if (prevOrder.status !== 'ready' && order.status === 'ready' && view !== 'dispatch') {
-          playReadyNotificationSound();
+        if (prevOrder.status !== 'ready' && order.status === 'ready') {
+          const location = order.type === 'dine-in' ? `Mesa ${order.table}` : (order.takeawayType?.toUpperCase() || 'LLEVAR');
+          triggerNativeNotification(
+            `🔔 ORDEN LISTA: ${location}`,
+            `La orden de ${order.client} está lista para entregarse.`
+          );
+          if (view !== 'dispatch') {
+            playReadyNotificationSound();
+          }
         }
       }
     });
@@ -771,16 +858,20 @@ const App: React.FC = () => {
     });
 
     if (outOfStock.length > 0) {
+      const msg = `SIN STOCK: ${outOfStock.join(', ')}`;
+      triggerNativeNotification('⚠️ Alerta de Inventario', msg);
       setActiveNotification({
         id: Date.now().toString(),
-        message: `SIN STOCK: ${outOfStock.join(', ')}`,
+        message: msg,
         type: 'warning'
       });
       return false;
     } else if (lowIngredients.length > 0) {
+      const msg = `STOCK BAJO: ${lowIngredients.join(', ')}`;
+      triggerNativeNotification('⚠️ Alerta de Inventario', msg);
       setActiveNotification({
         id: Date.now().toString(),
-        message: `STOCK BAJO: ${lowIngredients.join(', ')}`,
+        message: msg,
         type: 'warning'
       });
     }
@@ -1188,6 +1279,7 @@ const App: React.FC = () => {
     const location = order.type === 'dine-in' ? `Mesa ${order.table}` : (order.takeawayType?.toUpperCase() || 'LLEVAR');
     const message = `ORDEN LISTA: ${location} (${order.client})`;
     
+    triggerNativeNotification(`🔔 ORDEN LISTA: ${location}`, `La orden de ${order.client} está lista para entregarse.`);
     playReadyNotificationSound();
     setActiveNotification({ id: orderId, message, type: 'ready' });
     
@@ -1309,6 +1401,65 @@ const App: React.FC = () => {
     setAdminView('overview');
   };
 
+  const renderNotificationButton = () => {
+    if (notificationPermission === 'unsupported') return null;
+
+    let buttonClass = "";
+    let iconColor = "";
+    let titleText = "";
+    let badge = null;
+
+    if (notificationPermission === 'default') {
+      buttonClass = "bg-amber-600/10 hover:bg-amber-600/20 border-amber-500/30 text-amber-500 animate-pulse";
+      iconColor = "stroke-amber-500";
+      titleText = "Habilitar Notificaciones de Sistema";
+      badge = <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full" />;
+    } else if (notificationPermission === 'granted') {
+      buttonClass = "bg-green-600/10 hover:bg-green-600/20 border-green-500/30 text-green-500";
+      iconColor = "stroke-green-500";
+      titleText = "Notificaciones Activas (Click para probar)";
+    } else {
+      buttonClass = "bg-red-600/10 hover:bg-red-600/20 border-red-500/30 text-red-500 opacity-60";
+      iconColor = "stroke-red-500";
+      titleText = "Notificaciones Bloqueadas por el Navegador";
+    }
+
+    const handleClick = () => {
+      if (notificationPermission === 'default') {
+        requestNotificationPermission();
+      } else if (notificationPermission === 'granted') {
+        triggerNativeNotification('🔔 DosPOS', '¡Prueba de notificación del sistema exitosa!');
+        playReadyNotificationSound();
+      } else {
+        alert("Las notificaciones están bloqueadas en la configuración de su navegador. Por favor, habilítelas manualmente.");
+      }
+    };
+
+    return (
+      <button
+        onClick={handleClick}
+        className={`p-2 rounded-xl border transition-all relative flex items-center justify-center ${buttonClass}`}
+        title={titleText}
+      >
+        {notificationPermission === 'denied' ? (
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconColor}>
+            <path d="m13.73 21a1.9 1.9 0 0 1-3.46 0" />
+            <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
+            <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
+            <path d="M18 8a6 6 0 0 0-9.33-5" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={iconColor}>
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+        )}
+        {badge}
+      </button>
+    );
+  };
+
   if (!isLoaded) {
     return (
       <div className="h-screen flex items-center justify-center bg-black text-white">
@@ -1368,6 +1519,7 @@ const App: React.FC = () => {
           />
 
           <div className="hidden lg:flex items-center space-x-3">
+             {renderNotificationButton()}
              <div className="flex flex-col items-end leading-none">
                 <span className="text-[9px] font-black uppercase text-red-500 tracking-tighter">{currentUser.role}</span>
                 <span className="text-sm font-black uppercase tracking-tight">{currentUser.name}</span>
