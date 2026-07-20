@@ -7,6 +7,7 @@ export interface Ingredient {
   stock: number;
   minStock: number;
   unit: 'g' | 'ml' | 'unit';
+  updatedAt?: string;
 }
 
 export interface RecipeItem {
@@ -39,6 +40,7 @@ export interface Product {
   hasCombo?: boolean;
   comboOptions?: ComboOption[];
   recipe?: RecipeItem[];
+  updatedAt?: string;
 }
 
 export interface ComboOption {
@@ -100,6 +102,7 @@ export interface Order {
   estimatedMinutes?: number;
   preparingAt?: string;
   readyAt?: string;
+  updatedAt?: string;
 }
 
 export interface Shift {
@@ -108,6 +111,7 @@ export interface Shift {
   userName: string;
   startTime: string;
   endTime?: string;
+  updatedAt?: string;
 }
 
 export interface CashShift {
@@ -133,6 +137,7 @@ export interface CashShift {
   differenceTransferencia?: number;
   expectedOtros?: number;
   expectedCourtesy?: number;
+  updatedAt?: string;
 }
 
 export interface StoreSettings {

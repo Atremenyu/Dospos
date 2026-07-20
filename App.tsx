@@ -443,7 +443,7 @@ const App: React.FC = () => {
       };
 
       socket.onerror = (err) => {
-        console.error("Error de conexión en WebSocket:", err);
+        console.warn("Error de conexión en WebSocket:", err);
         storage.registerSocket(null);
         socket.close();
       };
@@ -492,10 +492,18 @@ const App: React.FC = () => {
 
     connectWebSocket();
 
+    // Fallback polling to keep devices synced in environments with WebSocket restrictions
+    const pollInterval = setInterval(() => {
+      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+        fetchInitialState();
+      }
+    }, 5000);
+
     return () => {
       isDisposed = true;
       storage.registerSocket(null);
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (pollInterval) clearInterval(pollInterval);
       if (socketRef.current) socketRef.current.close();
     };
   }, [isLoaded]);
@@ -584,7 +592,8 @@ const App: React.FC = () => {
         payment: allPaid ? payment : o.payment,
         status: allPaid ? 'delivered' : o.status,
         tip: (o.tip || 0) + tip,
-        payments
+        payments,
+        updatedAt: new Date().toISOString()
       } : o);
     });
   };
@@ -959,7 +968,8 @@ const App: React.FC = () => {
             if (ingIndex !== -1) {
               newIngredients[ingIndex] = { 
                 ...newIngredients[ingIndex], 
-                stock: newIngredients[ingIndex].stock - (ri.quantity * item.quantity) 
+                stock: newIngredients[ingIndex].stock - (ri.quantity * item.quantity),
+                updatedAt: new Date().toISOString()
               };
             }
           });
@@ -974,7 +984,8 @@ const App: React.FC = () => {
               if (ingIndex !== -1) {
                 newIngredients[ingIndex] = { 
                   ...newIngredients[ingIndex], 
-                  stock: newIngredients[ingIndex].stock - (ri.quantity * item.quantity) 
+                  stock: newIngredients[ingIndex].stock - (ri.quantity * item.quantity),
+                  updatedAt: new Date().toISOString()
                 };
               }
             });
@@ -1048,6 +1059,7 @@ const App: React.FC = () => {
               items: updatedItems,
               total: o.total + total,
               status: resolveOrderStatus(updatedItems, o.status), // Smart resolution instead of hardcoded 'pending'
+              updatedAt: new Date().toISOString()
             };
           }
           return o;
@@ -1085,7 +1097,8 @@ const App: React.FC = () => {
         paidQuantity: isPaidImmediately ? item.quantity : 0 
       })),
       isPaid: isPaidImmediately,
-      payments: newPayment
+      payments: newPayment,
+      updatedAt: new Date().toISOString()
     };
 
     setOrders(prev => [newOrder, ...prev]);
@@ -1110,7 +1123,7 @@ const App: React.FC = () => {
         // Auto-resolve overall order status based on individual item statuses
         const newOrderStatus = resolveOrderStatus(newItems, o.status);
 
-        return { ...o, items: newItems, status: newOrderStatus };
+        return { ...o, items: newItems, status: newOrderStatus, updatedAt: new Date().toISOString() };
       }
       return o;
     }));
@@ -1121,7 +1134,8 @@ const App: React.FC = () => {
       o.id === orderId ? { 
         ...o, 
         status: 'delivered' as const,
-        items: o.items.map(item => ({ ...item, status: 'delivered' as OrderStatus }))
+        items: o.items.map(item => ({ ...item, status: 'delivered' as OrderStatus })),
+        updatedAt: new Date().toISOString()
       } : o
     ));
   };
@@ -1136,14 +1150,15 @@ const App: React.FC = () => {
         items: o.items.map(item => ({ 
           ...item, 
           status: (item.status === 'delivered' || item.status === 'ready') ? item.status : ('preparing' as OrderStatus) 
-        }))
+        })),
+        updatedAt: new Date().toISOString()
       } : o
     ));
   };
 
   const updateOrderTime = (orderId: string, minutes: number) => {
     setOrders(prev => prev.map(o => 
-      o.id === orderId ? { ...o, estimatedMinutes: minutes } : o
+      o.id === orderId ? { ...o, estimatedMinutes: minutes, updatedAt: new Date().toISOString() } : o
     ));
   };
 
@@ -1272,7 +1287,8 @@ const App: React.FC = () => {
         items: o.items.map(item => ({ 
           ...item, 
           status: item.status === 'delivered' ? 'delivered' : ('ready' as OrderStatus) 
-        }))
+        })),
+        updatedAt: new Date().toISOString()
       } : o
     ));
 
@@ -1324,7 +1340,8 @@ const App: React.FC = () => {
             items: o.items.map(item => ({ 
               ...item, 
               paidQuantity: allPaid ? item.quantity : (item.paidQuantity || 0) + (item.quantity * (amount / o.total))
-            }))
+            })),
+            updatedAt: new Date().toISOString()
           };
         }
         return o;
@@ -1353,14 +1370,14 @@ const App: React.FC = () => {
         ));
       }
       return prev.map(o => 
-        o.id === orderId ? { ...o, status: 'cancelled' } : o
+        o.id === orderId ? { ...o, status: 'cancelled', updatedAt: new Date().toISOString() } : o
       );
     });
   };
 
   const transferOrder = (orderId: string, newTable: string) => {
     setOrders(prev => prev.map(o => 
-      o.id === orderId ? { ...o, table: newTable } : o
+      o.id === orderId ? { ...o, table: newTable, updatedAt: new Date().toISOString() } : o
     ));
   };
 
