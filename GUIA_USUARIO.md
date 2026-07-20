@@ -265,4 +265,23 @@ El sistema ahora cuenta con botones dedicados en color oscuro con el icono de la
 
 ---
 
+## 🔄 9. Sincronización en Tiempo Real y Operación Multi-dispositivo
+
+DosPOS está diseñado para operar con múltiples terminales simultáneamente (ej. Meseros con tablets en el salón, cajeros en barra, y pantallas KDS en la cocina). Para garantizar que toda la operación marche sobre ruedas sin pérdida de información, el sistema cuenta con tecnología de punta en sincronización:
+
+### ⚡ Sincronización Bidireccional por WebSockets
+Cada acción que se realiza (crear una comanda, iniciar la preparación de un plato, realizar un cobro, liberar una mesa o actualizar stock) se transmite de manera **instantánea (en milisegundos)** a todos los dispositivos conectados. Esto evita que la cocina prepare platos que ya fueron cancelados, o que dos meseros intenten abrir la misma mesa simultáneamente.
+
+### 🛡️ Motor Anticolisiones y Reconciliación Inteligente
+Si dos dispositivos realizan modificaciones a la vez o si uno de ellos sufre una micro-interrupción de red:
+* **Marcas de Tiempo Atómicas (`updatedAt`)**: Cada registro (pedido, ingrediente, mesa, etc.) cuenta con su propia marca de tiempo precisa. El sistema procesa las actualizaciones dando prioridad a los cambios más recientes.
+* **Priorización de Estados**: Si un mesero realiza una modificación en una mesa mientras el cajero está cobrándola, el sistema protege la transacción aplicando filtros de prioridad: los estados de pago finalizado, las comandas entregadas o canceladas siempre se resguardan para mantener la consistencia en el cierre de caja.
+* **Actualización en Bloque**: Al conectarse un dispositivo después de estar fuera de línea, el sistema no sobrescribe la base de datos a ciegas; en su lugar, fusiona cada comanda, ingrediente e inicio de turno uno a uno de forma atómica para conservar los consumos del salón y el inventario real.
+
+### 📡 Resiliencia y Sondeo de Respaldo (Fallback Polling)
+* Si hay restricciones severas de red o fallos en el canal de WebSockets, el sistema no se detiene. El software pasará de forma silenciosa e imperceptible a un **Sondeo de Respaldo de Alta Frecuencia (cada 5 segundos)** que mantiene el flujo de información fresco de manera redundante.
+* En caso de desconexión completa de la red del local, todos los datos se seguirán resguardando de forma local y segura en el almacenamiento de cada terminal (`localStorage`). Al restablecerse el enlace, el sistema reanudará la transmisión en segundo plano de manera autónoma.
+
+---
+
 *Nota: Todas las acciones e ingresos se registran de forma automática en el sistema centralizado de auditoría, permitiendo un control transparente de las finanzas de tu restaurante.*

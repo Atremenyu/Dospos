@@ -6,11 +6,17 @@ Este documento detalla todas las funcionalidades del sistema de gestión para re
 
 ## 🏗️ 1. Arquitectura de Software y Almacenamiento
 
-El sistema está diseñado bajo un enfoque **Offline-First**, asegurando que la operación de un restaurante nunca se detenga ante fallas de internet.
+El sistema está diseñado bajo un enfoque **Offline-First & Multi-Device Hybrid**, asegurando que la operación de un restaurante nunca se detenga ante fallas de internet ni sufra discrepancias entre terminales concurrentes.
 
 *   **Tecnologías Base**: Desarrollado como una SPA (Single Page Application) utilizando **React 18** y **TypeScript**. La interfaz de usuario nativa de tipo "Neobrutalista / Dark Cosmic" está estructurada mediante **Tailwind CSS**.
 *   **Persistencia de Datos**: Para garantizar velocidad e independencia, todas las transacciones, inventarios y configuraciones se guardan localmente en el navegador usando un motor reactivo sustentado en el estándar `localStorage`. 
 *   **Aislamiento de Estado**: Utiliza flujos de estado principal distribuidos a través del componente raíz `App.tsx` para compartir entidades como `Orders`, `Products`, `Ingredients`, `Users` a todos los módulos dependientes, logrando una sincronización inmediata a lo largo de las vistas en la misma pantalla.
+*   **Motor de Sincronización en Red y Reconciliación (Dual-Sync Engine)**:
+    *   **Canal Principal (WebSockets)**: Implementado mediante `ws` en el servidor Express y conexiones automáticas `reconnect` en React. Transmite cada comando, cobro o cambio de estado de preparación al instante (sub-segundo) en formato JSON.
+    *   **Control de Concurrencia (Timestamps)**: Cada registro posee un atributo `updatedAt` (ISO 8601). Ante escrituras concurrentes o sincronización demorada tras una reconexión, el servidor aplica un filtro determinista *Last-Write-Wins* para resolver colisiones.
+    *   **Fusión Inteligente (Priority State Merging)**: Lógica en servidor y base de datos local que analiza y prioriza estados terminales de comandas (por ejemplo, `delivered` o `cancelled` sobrescriben estados pendientes/preparando para evitar regresiones de datos en el KDS), cantidad de pagos (`PaymentRecords`) asociados e ítems de comanda.
+    *   **Sondeo de Respaldo Redundante (Fallback Polling)**: Si el túnel de WebSockets se bloquea por políticas de firewall del navegador o inestabilidad del módem del establecimiento, se inicia de inmediato un sondeo en segundo plano (HTTP GET cada 5 segundos) que consulta y actualiza el estado consolidado de forma transparente.
+    *   **Sincronización Atómica en Bloque (Bulk Sync)**: Los métodos `SAVE_BULK` y `UPDATE_BULK` comparan y fusionan cada registro por ID en lugar de reemplazar bases de datos completas, previniendo sobreescrituras ciegas accidentales de turnos o inventarios.
 
 ---
 

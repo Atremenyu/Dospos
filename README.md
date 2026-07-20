@@ -15,13 +15,19 @@ El sistema está construido siguiendo los estándares más altos de diseño inte
 
 ## ⚡ Características Destacadas
 
-1. **Sincronización Bidireccional Instantánea (WebSockets)**:
+1. **Sincronización Bidireccional de Alto Rendimiento (WebSockets)**:
    - Cuando se añade un producto, se actualiza una mesa o se despacha un plato, el cambio se refleja de inmediato en todas las pantallas (POS de meseros, Caja y KDS de Cocina) sin necesidad de recargar la página.
-2. **Gestión Inteligente de Productos Extras**:
+2. **Motor de Reconciliación de Conflictos Avanzado (Conflict Reconciliation Engine)**:
+   - En entornos multi-dispositivo con escrituras simultáneas, el sistema implementa una lógica de reconciliación basada en marcas de tiempo (`updatedAt` en formato ISO 8601). En caso de conflicto de red o desconexión temporal, el servidor resuelve de forma determinista la última escritura (*Last-Write-Wins*).
+   - **Fusión Inteligente de Comandas**: Si las marcas de tiempo coinciden, se utiliza un algoritmo de priorización basado en el estado (los estados terminales como `delivered` o `cancelled` tienen prioridad sobre estados transitorios), presencia de pagos registrados y desglose de artículos de mayor volumen para asegurar que ningún pago o artículo se pierda.
+   - **Integración Segura en Bloque (Bulk Sync)**: Al guardar o sincronizar en bloque, el servidor fusiona de manera selectiva cada entidad (ingredientes, productos, turnos, comandas) de forma atómica e inteligente por su ID en lugar de sobrescribir el estado completo.
+3. **Mecanismo de Sondeo de Respaldo Redundante (Fallback Polling)**:
+   - En redes inestables o entornos donde los WebSockets sufren interrupciones, el sistema activa automáticamente un sondeo silencioso cada 5 segundos. Este sondeo consulta de manera segura el servidor REST y actualiza el estado de forma progresiva, garantizando redundancia absoluta sin sobrecargar la red ni interrumpir la experiencia de usuario.
+4. **Gestión Inteligente de Productos Extras**:
    - Al agregar productos a una mesa que ya está en preparación, la comanda **no regresa al estado pendiente de forma global** para no confundir al chef. En su lugar, el sistema resalta los nuevos items con etiquetas parpadeantes (`🚨 NUEVO / COLA`) permitiendo una preparación continua y sin fricciones.
-3. **Control Individualizado de Platos**:
+5. **Control Individualizado de Platos**:
    - Cada artículo dentro de un pedido tiene su propio estado de preparación (`Pendiente`, `Preparando`, `Listo`, `Entregado`). Esto permite que la cocina despache las entradas, los platos fuertes y las bebidas a ritmos independientes.
-4. **Resiliencia Desconectada (Dual-Sync Engine)**:
+6. **Resiliencia Desconectada (Dual-Sync Engine)**:
    - Los datos se guardan tanto en el almacenamiento local (`localStorage`) de manera inmediata como en el servidor. Al iniciar, el sistema es capaz de inicializarse automáticamente y autorrecuperarse en caso de caídas de red.
 
 ---
