@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, ModifierGroup, SelectedModifier, Modifier } from '../types';
 import { Icons } from '../constants';
@@ -96,6 +96,25 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
 
     onConfirm(finalModifiers, note);
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === 'Enter') {
+        const target = e.target as HTMLElement | null;
+        const isTextArea = target?.tagName === 'TEXTAREA';
+        if (!isTextArea || e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          handleConfirm();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, handleConfirm]);
 
   return (
     <div 

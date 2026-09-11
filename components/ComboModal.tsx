@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Product, ComboOption } from '../types';
 
@@ -15,6 +15,38 @@ const ComboModal: React.FC<ComboModalProps> = ({ product, onClose, onConfirm }) 
   const [selectedOption, setSelectedOption] = useState<ComboOption | null>(null);
 
   const totalExtra = selectedOption ? selectedOption.extraPrice : 0;
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      } else if (!isCombo) {
+        if (e.key === '1' || e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          onConfirm(false, []);
+        } else if (e.key === '2' || e.key === 'c' || e.key === 'C') {
+          e.preventDefault();
+          setIsCombo(true);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          onConfirm(false, []);
+        }
+      } else {
+        const num = parseInt(e.key, 10);
+        if (!isNaN(num) && num >= 1 && product.comboOptions && num <= product.comboOptions.length) {
+          e.preventDefault();
+          setSelectedOption(product.comboOptions[num - 1]);
+        } else if (e.key === 'Enter' && selectedOption) {
+          e.preventDefault();
+          onConfirm(true, [selectedOption]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCombo, selectedOption, product, onClose, onConfirm]);
 
   return (
     <div 

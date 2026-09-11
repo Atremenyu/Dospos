@@ -1,0 +1,495 @@
+{
+  "products": [
+    {
+      "id": "1",
+      "name": "Hamburguesa Clásica",
+      "price": 850,
+      "category": "Comida",
+      "modifierGroups": [
+        {
+          "id": "mg1",
+          "name": "Ingredientes Extra",
+          "minSelection": 0,
+          "maxSelection": 5,
+          "isRequired": false,
+          "modifiers": [
+            {
+              "id": "m1",
+              "name": "Extra Queso",
+              "extraPrice": 50
+            },
+            {
+              "id": "m2",
+              "name": "Extra Tocino",
+              "extraPrice": 120
+            },
+            {
+              "id": "m3",
+              "name": "Huevo Estrellado",
+              "extraPrice": 80
+            },
+            {
+              "id": "m4",
+              "name": "Aguacate",
+              "extraPrice": 100
+            }
+          ]
+        },
+        {
+          "id": "mg2",
+          "name": "Remover Ingredientes",
+          "minSelection": 0,
+          "maxSelection": 10,
+          "isRequired": false,
+          "modifiers": [
+            {
+              "id": "m5",
+              "name": "Sin Cebolla",
+              "extraPrice": 0
+            },
+            {
+              "id": "m6",
+              "name": "Sin Tomate",
+              "extraPrice": 0
+            },
+            {
+              "id": "m7",
+              "name": "Sin Pepinillos",
+              "extraPrice": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "name": "Papas Fritas XL",
+      "price": 450,
+      "category": "Comida"
+    },
+    {
+      "id": "3",
+      "name": "Hot Dog Especial",
+      "price": 600,
+      "category": "Comida"
+    },
+    {
+      "id": "4",
+      "name": "Coca Cola 500ml",
+      "price": 300,
+      "category": "Bebida"
+    },
+    {
+      "id": "5",
+      "name": "Cerveza Artesanal",
+      "price": 550,
+      "category": "Bebida"
+    },
+    {
+      "id": "6",
+      "name": "Agua Mineral",
+      "price": 200,
+      "category": "Bebida"
+    },
+    {
+      "id": "7",
+      "name": "Brownie con Helado",
+      "price": 400,
+      "category": "Postre"
+    },
+    {
+      "id": "8",
+      "name": "Ensalada de Frutas",
+      "price": 350,
+      "category": "Postre"
+    }
+  ],
+  "ingredients": [],
+  "categories": [
+    "Comida",
+    "Bebida",
+    "Postre",
+    "Otros"
+  ],
+  "tables": [
+    {
+      "id": "1",
+      "name": "Mesa 1",
+      "status": "free",
+      "isOccupied": false
+    },
+    {
+      "id": "2",
+      "name": "Mesa 2",
+      "status": "free"
+    },
+    {
+      "id": "3",
+      "name": "Mesa 3",
+      "status": "free",
+      "isOccupied": false
+    },
+    {
+      "id": "4",
+      "name": "Mesa 4",
+      "status": "free"
+    },
+    {
+      "id": "5",
+      "name": "Mesa 5",
+      "status": "free"
+    },
+    {
+      "id": "6",
+      "name": "Mesa 6",
+      "status": "free"
+    },
+    {
+      "id": "7",
+      "name": "Mesa 7",
+      "status": "free"
+    },
+    {
+      "id": "8",
+      "name": "Mesa 8",
+      "status": "free"
+    }
+  ],
+  "orders": [
+    {
+      "id": "1788996308886",
+      "orderNumber": 4,
+      "movementNumber": "8865",
+      "date": "2026-09-09T23:25:08.886Z",
+      "client": "Mostrador",
+      "table": "Mostrador",
+      "diners": 1,
+      "waiter": "Admin",
+      "payment": "Tarjeta",
+      "status": "delivered",
+      "type": "takeaway",
+      "takeawayType": "local",
+      "total": 450,
+      "tip": 0,
+      "receivedAmount": 450,
+      "changeAmount": 0,
+      "closedAt": "2026-09-09T23:25:08.886Z",
+      "items": [
+        {
+          "id": "2",
+          "name": "Papas Fritas XL",
+          "price": 450,
+          "category": "Comida",
+          "quantity": 1,
+          "note": "",
+          "status": "delivered",
+          "paidQuantity": 1
+        }
+      ],
+      "isPaid": true,
+      "payments": [
+        {
+          "id": "tp9qoid7w",
+          "method": "Tarjeta",
+          "amount": 450,
+          "tip": 0,
+          "receivedAmount": 450,
+          "change": 0,
+          "timestamp": "2026-09-09T23:25:08.886Z"
+        }
+      ],
+      "updatedAt": "2026-09-09T23:48:30.432Z"
+    },
+    {
+      "id": "1788887087725",
+      "orderNumber": 3,
+      "movementNumber": "8864",
+      "date": "2026-09-08T17:04:47.725Z",
+      "client": "Juanca",
+      "table": "Mesa 3",
+      "diners": 1,
+      "waiter": "Admin",
+      "payment": "Transferencia",
+      "status": "delivered",
+      "type": "dine-in",
+      "total": 550,
+      "tip": 0,
+      "items": [
+        {
+          "id": "5",
+          "name": "Cerveza Artesanal",
+          "price": 550,
+          "category": "Bebida",
+          "quantity": 1,
+          "note": "",
+          "status": "delivered",
+          "paidQuantity": 1
+        }
+      ],
+      "isPaid": true,
+      "payments": [
+        {
+          "id": "dwkvt7ohz",
+          "amount": 550,
+          "method": "Transferencia",
+          "tip": 0,
+          "receivedAmount": 550,
+          "change": 0,
+          "timestamp": "2026-09-08T18:03:07.960Z"
+        }
+      ],
+      "updatedAt": "2026-09-08T18:03:07.961Z",
+      "estimatedMinutes": 15,
+      "preparingAt": "2026-09-08T17:04:51.412Z",
+      "readyAt": "2026-09-08T17:04:53.923Z",
+      "closedAt": "2026-09-08T18:03:07.961Z",
+      "receivedAmount": 550,
+      "changeAmount": 0
+    },
+    {
+      "id": "1788884411469",
+      "orderNumber": 2,
+      "movementNumber": "8863",
+      "date": "2026-09-08T16:20:11.469Z",
+      "client": "gh",
+      "table": "Mostrador",
+      "diners": 1,
+      "waiter": "Admin",
+      "payment": "Efectivo",
+      "status": "delivered",
+      "type": "takeaway",
+      "takeawayType": "local",
+      "total": 600,
+      "tip": 0,
+      "receivedAmount": 600,
+      "changeAmount": 0,
+      "closedAt": "2026-09-08T16:20:11.469Z",
+      "items": [
+        {
+          "id": "3",
+          "name": "Hot Dog Especial",
+          "price": 600,
+          "category": "Comida",
+          "quantity": 1,
+          "note": "",
+          "status": "delivered",
+          "paidQuantity": 1
+        }
+      ],
+      "isPaid": true,
+      "payments": [
+        {
+          "id": "fciyco8hg",
+          "method": "Efectivo",
+          "amount": 600,
+          "tip": 0,
+          "receivedAmount": 600,
+          "change": 0,
+          "timestamp": "2026-09-08T16:20:11.469Z"
+        }
+      ],
+      "updatedAt": "2026-09-08T16:20:57.466Z",
+      "estimatedMinutes": 15,
+      "preparingAt": "2026-09-08T16:20:55.826Z",
+      "readyAt": "2026-09-08T16:20:56.450Z"
+    },
+    {
+      "id": "1788883162674",
+      "orderNumber": 1,
+      "movementNumber": "8862",
+      "date": "2026-09-08T15:59:22.674Z",
+      "client": "Juan",
+      "table": "Mesa 1",
+      "diners": 1,
+      "waiter": "Admin",
+      "payment": "Efectivo",
+      "status": "delivered",
+      "type": "dine-in",
+      "total": 850,
+      "tip": 0,
+      "items": [
+        {
+          "id": "1",
+          "name": "Hamburguesa Clásica",
+          "price": 850,
+          "category": "Comida",
+          "modifierGroups": [
+            {
+              "id": "mg1",
+              "name": "Ingredientes Extra",
+              "minSelection": 0,
+              "maxSelection": 5,
+              "isRequired": false,
+              "modifiers": [
+                {
+                  "id": "m1",
+                  "name": "Extra Queso",
+                  "extraPrice": 50
+                },
+                {
+                  "id": "m2",
+                  "name": "Extra Tocino",
+                  "extraPrice": 120
+                },
+                {
+                  "id": "m3",
+                  "name": "Huevo Estrellado",
+                  "extraPrice": 80
+                },
+                {
+                  "id": "m4",
+                  "name": "Aguacate",
+                  "extraPrice": 100
+                }
+              ]
+            },
+            {
+              "id": "mg2",
+              "name": "Remover Ingredientes",
+              "minSelection": 0,
+              "maxSelection": 10,
+              "isRequired": false,
+              "modifiers": [
+                {
+                  "id": "m5",
+                  "name": "Sin Cebolla",
+                  "extraPrice": 0
+                },
+                {
+                  "id": "m6",
+                  "name": "Sin Tomate",
+                  "extraPrice": 0
+                },
+                {
+                  "id": "m7",
+                  "name": "Sin Pepinillos",
+                  "extraPrice": 0
+                }
+              ]
+            }
+          ],
+          "quantity": 1,
+          "note": "",
+          "selectedModifiers": [],
+          "isCombo": false,
+          "selectedComboOptions": [],
+          "status": "delivered",
+          "paidQuantity": 1
+        }
+      ],
+      "isPaid": true,
+      "payments": [
+        {
+          "id": "84bmy1ah6",
+          "amount": 850,
+          "method": "Efectivo",
+          "tip": 0,
+          "receivedAmount": 850,
+          "change": 0,
+          "timestamp": "2026-09-08T16:19:47.749Z"
+        }
+      ],
+      "updatedAt": "2026-09-08T16:19:47.749Z",
+      "estimatedMinutes": 15,
+      "preparingAt": "2026-09-08T15:59:24.273Z",
+      "readyAt": "2026-09-08T15:59:25.929Z",
+      "closedAt": "2026-09-08T16:19:47.749Z",
+      "receivedAmount": 850,
+      "changeAmount": 0
+    }
+  ],
+  "users": [
+    {
+      "id": "admin-1",
+      "name": "Admin",
+      "pin": "2826",
+      "role": "Admin"
+    }
+  ],
+  "shifts": [],
+  "cashShifts": [
+    {
+      "id": "1788882170546",
+      "userId": "admin-1",
+      "userName": "Admin",
+      "openingTime": "2026-09-08T15:42:50.546Z",
+      "initialFund": 100,
+      "status": "closed",
+      "closingTime": "2026-09-09T23:33:50.776Z",
+      "expectedAmount": 2100,
+      "actualAmount": 2100,
+      "difference": 0,
+      "notes": "",
+      "expectedCash": 1550,
+      "actualCash": 1550,
+      "differenceCash": 0,
+      "expectedTarjeta": 0,
+      "actualTarjeta": 0,
+      "differenceTarjeta": 0,
+      "expectedTransferencia": 550,
+      "actualTransferencia": 550,
+      "differenceTransferencia": 0,
+      "expectedOtros": 0,
+      "expectedCourtesy": 0
+    },
+    {
+      "id": "1788996835822",
+      "userId": "admin-1",
+      "userName": "Admin",
+      "openingTime": "2026-09-09T23:33:55.822Z",
+      "initialFund": 100,
+      "status": "open"
+    }
+  ],
+  "roles": [
+    {
+      "name": "Admin",
+      "permissions": [
+        "pos",
+        "tables",
+        "dispatch",
+        "central"
+      ],
+      "allowCourtesy": true
+    },
+    {
+      "name": "Cocinero",
+      "permissions": [
+        "dispatch"
+      ]
+    },
+    {
+      "name": "Mesero",
+      "permissions": [
+        "tables",
+        "pos"
+      ]
+    },
+    {
+      "name": "Caja",
+      "permissions": [
+        "pos",
+        "tables"
+      ]
+    }
+  ],
+  "promotions": [
+    {
+      "id": "promo_1788997225254_7qlj",
+      "name": "REAL + PAPAS",
+      "description": "PROMOCION VALIDA LOS LUNES",
+      "type": "special_price",
+      "discountValue": 149,
+      "daysOfWeek": [
+        1,
+        3,
+        4
+      ],
+      "applicableProductIds": [
+        "1"
+      ],
+      "isActive": true,
+      "updatedAt": "2026-09-10T00:27:16.738Z"
+    }
+  ]
+}

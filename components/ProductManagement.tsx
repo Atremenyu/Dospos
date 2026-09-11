@@ -2,6 +2,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Product, Category, Order, Table, User, Shift, UserRole, ViewState, StoreSettings, ComboOption, ModifierGroup, Modifier, Ingredient, RecipeItem } from '../types';
 import { Icons } from '../constants';
+import { printThermalTicketHTML } from '../services/thermalPrinter';
+import { generateTicketPDF } from '../services/pdfGenerator';
+import { storage } from '../services/storage';
+import { numberToWordsSpanish } from '../utils/numberToWords';
+import { calculateTaxBreakdown, formatDateTime } from '../utils/ticketFormatters';
 
 interface ProductManagementProps {
   products: Product[];
@@ -1617,52 +1622,90 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
             
             {/* Perfil del Negocio */}
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-              <h3 className="text-sm font-black text-black uppercase tracking-widest border-b border-slate-100 pb-4">Perfil del Negocio</h3>
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-sm font-black text-black uppercase tracking-widest">Perfil del Negocio</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">Datos que identifican al establecimiento en recibos, comandas y tickets fiscales.</p>
+                </div>
+                <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase tracking-wider">Aparece en Ticket</span>
+              </div>
+              
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre del Negocio</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre del Negocio / Razón Social *</label>
                   <div className="relative">
                     <div className="absolute left-3 top-3 text-slate-400"><Icons.ChefHat size={18}/></div>
                     <input 
                       type="text" 
+                      placeholder="Ej. DOS RODRIGUEZ"
                       className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
                       value={formSettings.name}
                       onChange={e => setFormSettings({...formSettings, name: e.target.value})}
                     />
                   </div>
                 </div>
+
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Giro / Rubro Comercial</label>
                   <div className="relative">
                     <div className="absolute left-3 top-3 text-slate-400"><Icons.MapPin size={18}/></div>
                     <input 
                       type="text" 
-                      placeholder="Ej. Restaurante, Cafetería, Bar..."
+                      placeholder="Ej. Restaurante, Bar, Cafetería..."
                       className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
                       value={formSettings.eventType}
                       onChange={e => setFormSettings({...formSettings, eventType: e.target.value})}
                     />
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha de Operación (Hoy)</label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-3 text-red-600"><Icons.Calendar size={18}/></div>
-                    <div className="w-full pl-10 pr-4 py-3 rounded-xl bg-red-50 border-0 ring-1 ring-red-100 font-black text-red-600 text-sm uppercase">
-                      {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Teléfono</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dirección Línea 1 (Calle, Número, Colonia) *</label>
                   <input 
                     type="text" 
-                    placeholder="Ej. +52 123 456 7890"
+                    placeholder="Ej. Mariano Escobedo 728-Norte, Centro"
                     className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
-                    value={formSettings.phone || ''}
-                    onChange={e => setFormSettings({...formSettings, phone: e.target.value})}
+                    value={formSettings.address || ''}
+                    onChange={e => setFormSettings({...formSettings, address: e.target.value})}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dirección Línea 2 (Ciudad, Estado, C.P.)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej. 64000 Monterrey, N.L."
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
+                    value={formSettings.addressLine2 || ''}
+                    onChange={e => setFormSettings({...formSettings, addressLine2: e.target.value})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Teléfono del Negocio *</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-3 text-slate-400"><Icons.Phone size={18}/></div>
+                    <input 
+                      type="text" 
+                      placeholder="Ej. 81 3128 3197"
+                      className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
+                      value={formSettings.phone || ''}
+                      onChange={e => setFormSettings({...formSettings, phone: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">RFC / Identificador Fiscal</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej. CBA180520ABC o XAXX010101000"
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm uppercase"
+                    value={formSettings.taxId || ''}
+                    onChange={e => setFormSettings({...formSettings, taxId: e.target.value})}
+                  />
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Correo Electrónico</label>
                   <input 
@@ -1673,23 +1716,42 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                     onChange={e => setFormSettings({...formSettings, email: e.target.value})}
                   />
                 </div>
-                <div className="space-y-2 md:col-span-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dirección Comercial</label>
-                  <input 
-                    type="text" 
-                    placeholder="Av. Principal 123, Ciudad, País"
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
-                    value={formSettings.address || ''}
-                    onChange={e => setFormSettings({...formSettings, address: e.target.value})}
-                  />
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha de Operación (Hoy)</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-3 text-red-600"><Icons.Calendar size={18}/></div>
+                    <div className="w-full pl-10 pr-4 py-3 rounded-xl bg-red-50 border-0 ring-1 ring-red-100 font-black text-red-600 text-sm uppercase">
+                      {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Configuración de Tickets */}
+            {/* Configuración de Tickets & Recibos */}
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-              <h3 className="text-sm font-black text-black uppercase tracking-widest border-b border-slate-100 pb-4">Tickets & Recibos</h3>
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-sm font-black text-black uppercase tracking-widest">Formato de Ticket & Impresión</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">Personaliza terminales, desglose de impuestos, moneda en letras y mensajes de cortesía.</p>
+                </div>
+                <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase tracking-wider">Térmico & PDF</span>
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre / ID de Terminal en Ticket</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej. 1 -- SERVER1"
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
+                    value={formSettings.terminalName || ''}
+                    onChange={e => setFormSettings({...formSettings, terminalName: e.target.value})}
+                  />
+                  <p className="text-[11px] text-slate-400">Identifica el punto de cobro o estación emisora al pie del ticket.</p>
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Moneda</label>
                   <select 
@@ -1697,41 +1759,548 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
                     value={formSettings.currency}
                     onChange={e => setFormSettings({...formSettings, currency: e.target.value})}
                   >
-                    <option value="MXN">Peso Mexicano (MXN)</option>
-                    <option value="USD">Dólar Estadounidense (USD)</option>
-                    <option value="EUR">Euro (EUR)</option>
-                    <option value="ARS">Peso Argentino (ARS)</option>
-                    <option value="COP">Peso Colombiano (COP)</option>
-                    <option value="PEN">Sol Peruano (PEN)</option>
+                    <option value="MXN">Peso Mexicano (MXN - $)</option>
+                    <option value="USD">Dólar Estadounidense (USD - $)</option>
+                    <option value="EUR">Euro (EUR - €)</option>
+                    <option value="ARS">Peso Argentino (ARS - $)</option>
+                    <option value="COP">Peso Colombiano (COP - $)</option>
+                    <option value="PEN">Sol Peruano (PEN - S/.)</option>
                   </select>
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Identificador Fiscal / RFC / RUT</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Texto de Moneda en Letras</label>
                   <input 
                     type="text" 
-                    placeholder="Opcional"
+                    placeholder="Ej. PESOS, DÓLARES, EUROS"
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm uppercase"
+                    value={formSettings.currencyText || ''}
+                    onChange={e => setFormSettings({...formSettings, currencyText: e.target.value})}
+                  />
+                  <p className="text-[11px] text-slate-400">Palabra utilizada en la leyenda (Ej: "DOSCIENTOS PESOS 00/100 M.N.").</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Comensales por Defecto en Mesa</label>
+                  <input 
+                    type="number" 
+                    min={1}
+                    max={50}
+                    placeholder="1"
                     className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
-                    value={formSettings.taxId || ''}
-                    onChange={e => setFormSettings({...formSettings, taxId: e.target.value})}
+                    value={formSettings.defaultDiners ?? 1}
+                    onChange={e => setFormSettings({...formSettings, defaultDiners: parseInt(e.target.value) || 1})}
+                  />
+                  <p className="text-[11px] text-slate-400">Número inicial de personas asignado al abrir una cuenta de mesa.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasa de Impuesto / IVA (%)</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      placeholder="16"
+                      className="w-full pl-4 pr-10 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm"
+                      value={formSettings.taxRate ?? 16}
+                      onChange={e => setFormSettings({...formSettings, taxRate: parseFloat(e.target.value) || 0})}
+                    />
+                    <div className="absolute right-4 top-3 text-slate-400 font-bold text-sm">%</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="space-y-0.5 pr-4">
+                    <label className="text-xs font-bold text-slate-800">Desglosar Subtotal e IVA en Ticket</label>
+                    <p className="text-[11px] text-slate-400">Si está activo, el ticket mostrará Subtotal, IVA desglosado y Gran Total.</p>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={(formSettings.includeTaxBreakdown ?? true) && (formSettings.showTicketSubtotal !== false || formSettings.showTicketTax !== false)}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      const nextSettings = {
+                        ...formSettings, 
+                        includeTaxBreakdown: checked,
+                        showTicketSubtotal: checked,
+                        showTicketTax: checked,
+                      };
+                      setFormSettings(nextSettings);
+                      onUpdateSettings(nextSettings);
+                      storage.saveSettings(nextSettings);
+                    }}
+                    className="w-5 h-5 accent-black rounded cursor-pointer"
                   />
                 </div>
+
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mensaje Impreso - Cabecera</label>
                   <textarea 
-                    placeholder="Ej. ¡Bienvenidos a nuestro local! / Wi-Fi: ... "
+                    placeholder="Ej. ¡Bienvenidos a nuestro local! / Wi-Fi: MiRed_5G (clave: 12345678)"
                     className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm resize-none h-20"
                     value={formSettings.receiptHeader || ''}
                     onChange={e => setFormSettings({...formSettings, receiptHeader: e.target.value})}
                   />
                 </div>
+
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mensaje Impreso - Pie de Página</label>
                   <textarea 
-                    placeholder="Ej. ¡Gracias por su preferencia! / Síganos en redes: @minegocio"
+                    placeholder="Ej. ¡Gracias por su preferencia! / Síganos en redes: @cotorritosba"
                     className="w-full px-4 py-3 rounded-xl bg-slate-50 border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-black outline-none font-bold text-slate-800 text-sm resize-none h-20"
                     value={formSettings.receiptFooter || ''}
                     onChange={e => setFormSettings({...formSettings, receiptFooter: e.target.value})}
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Interruptores de Visibilidad de Secciones del Ticket */}
+            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-sm font-black text-black uppercase tracking-widest">Interruptores de Secciones del Ticket</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">Elige qué información mostrar u ocultar en los tickets impresos térmicos y en PDF.</p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextSettings = {
+                        ...formSettings,
+                        showTicketAddress: true,
+                        showTicketPhone: true,
+                        showTicketTaxId: true,
+                        showTicketHeaderMsg: true,
+                        showTicketDate: true,
+                        showTicketOrderNum: true,
+                        showTicketTable: true,
+                        showTicketWaiter: true,
+                        showTicketTimes: true,
+                        showTicketDeliveryAddress: true,
+                        showTicketTotalArticles: true,
+                        showTicketSubtotal: true,
+                        showTicketTax: true,
+                        showTicketAmountInWords: true,
+                        showTicketPaymentDetails: true,
+                        showTicketTerminal: true,
+                        showTicketFooterMsg: true,
+                      };
+                      setFormSettings(nextSettings);
+                      onUpdateSettings(nextSettings);
+                      storage.saveSettings(nextSettings);
+                    }}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition"
+                  >
+                    Activar Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextSettings = {
+                        ...formSettings,
+                        showTicketAddress: false,
+                        showTicketPhone: false,
+                        showTicketTaxId: false,
+                        showTicketHeaderMsg: false,
+                        showTicketDate: true,
+                        showTicketOrderNum: true,
+                        showTicketTable: true,
+                        showTicketWaiter: false,
+                        showTicketTimes: false,
+                        showTicketDeliveryAddress: false,
+                        showTicketTotalArticles: true,
+                        showTicketSubtotal: false,
+                        showTicketTax: false,
+                        showTicketAmountInWords: false,
+                        showTicketPaymentDetails: false,
+                        showTicketTerminal: false,
+                        showTicketFooterMsg: false,
+                      };
+                      setFormSettings(nextSettings);
+                      onUpdateSettings(nextSettings);
+                      storage.saveSettings(nextSettings);
+                    }}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition"
+                  >
+                    Mínimo / Compacto
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[
+                  { key: 'showTicketAddress' as const, label: 'Dirección del Local', desc: 'Calle, número y colonia' },
+                  { key: 'showTicketPhone' as const, label: 'Teléfono', desc: 'Teléfono de contacto del local' },
+                  { key: 'showTicketTaxId' as const, label: 'RFC / Identificador Fiscal', desc: 'Clave fiscal registrada' },
+                  { key: 'showTicketHeaderMsg' as const, label: 'Mensaje de Cabecera', desc: 'Texto de bienvenida inicial' },
+                  { key: 'showTicketDate' as const, label: 'Fecha de Operación', desc: 'Día y fecha de la orden' },
+                  { key: 'showTicketOrderNum' as const, label: 'Número de Orden', desc: 'Número de comanda / pedido' },
+                  { key: 'showTicketTable' as const, label: 'Mesa / Salón', desc: 'Identificador de la mesa' },
+                  { key: 'showTicketWaiter' as const, label: 'Mesero / Atendido por', desc: 'Personal que atendió la orden' },
+                  { key: 'showTicketTimes' as const, label: 'Horas del Servicio', desc: 'Entrada, impresión y cierre' },
+                  { key: 'showTicketDeliveryAddress' as const, label: 'Dirección de Entrega', desc: 'Para envíos a domicilio' },
+                  { key: 'showTicketTotalArticles' as const, label: 'Conteo de Artículos', desc: 'Suma de artículos vendidos' },
+                  { key: 'showTicketSubtotal' as const, label: 'Subtotal', desc: 'Monto antes de impuestos' },
+                  { key: 'showTicketTax' as const, label: 'IVA / Impuesto', desc: 'Desglose del porcentaje de IVA' },
+                  { key: 'showTicketAmountInWords' as const, label: 'Importe con Letra', desc: 'Monto total redactado en texto' },
+                  { key: 'showTicketPaymentDetails' as const, label: 'Formas de Pago', desc: 'Monto, propina y cambio' },
+                  { key: 'showTicketTerminal' as const, label: 'Terminal e Impresión', desc: 'Terminal y fecha/hora al pie' },
+                  { key: 'showTicketFooterMsg' as const, label: 'Mensaje de Pie de Página', desc: 'Agradecimiento o redes' },
+                ].map((item) => {
+                  const isChecked = formSettings[item.key] !== false;
+                  const toggleItem = () => {
+                    const nextVal = !isChecked;
+                    const updates: Record<string, any> = { [item.key]: nextVal };
+                    if (item.key === 'showTicketTax' && nextVal) {
+                      updates.includeTaxBreakdown = true;
+                    }
+                    const nextSettings = { ...formSettings, ...updates };
+                    setFormSettings(nextSettings);
+                    onUpdateSettings(nextSettings);
+                    storage.saveSettings(nextSettings);
+                  };
+                  return (
+                    <div
+                      key={item.key}
+                      onClick={toggleItem}
+                      className={`flex items-center justify-between p-4 rounded-2xl border transition cursor-pointer select-none ${
+                        isChecked 
+                          ? 'bg-slate-50/80 border-slate-300 hover:border-black' 
+                          : 'bg-slate-50/30 border-slate-100 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <div className="space-y-0.5 pr-2">
+                        <div className="text-xs font-black text-slate-800 uppercase tracking-tight">
+                          {item.label}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-medium leading-snug">
+                          {item.desc}
+                        </div>
+                      </div>
+
+                      {/* Switch Visual */}
+                      <button
+                        type="button"
+                        aria-label={item.label}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          isChecked ? 'bg-black' : 'bg-slate-300'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleItem();
+                        }}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                            isChecked ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Vista Previa en Vivo del Ticket */}
+            <div className="bg-slate-900 p-8 rounded-3xl text-white space-y-6 shadow-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <Icons.Printer className="text-red-500" size={20} />
+                    <h3 className="text-sm font-black uppercase tracking-widest">Vista Previa en Vivo del Ticket (80mm)</h3>
+                  </div>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    Visualiza en tiempo real el formato exacto que se enviará a la impresora térmica y al documento PDF según tus interruptores configurados.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const sampleOrder: Order = {
+                        id: 'demo-sample-print',
+                        orderNumber: 23,
+                        movementNumber: '8862',
+                        date: new Date().toISOString(),
+                        client: 'Mesa 9',
+                        table: 'Mesa 9',
+                        diners: formSettings.defaultDiners || 1,
+                        waiter: 'ADMINISTRACION',
+                        type: 'dine-in',
+                        payment: 'Efectivo',
+                        status: 'delivered',
+                        isPaid: true,
+                        total: 212,
+                        tip: 0,
+                        receivedAmount: 500,
+                        changeAmount: 288,
+                        closedAt: new Date().toISOString(),
+                        preticketPrintedAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+                        items: [
+                          { id: '1', name: 'CARTA BLANCA 355 ML', price: 28, quantity: 1, category: 'Bebida', status: 'delivered' },
+                          { id: '2', name: 'DOS EQUIS LAGER 355 ML', price: 28, quantity: 1, category: 'Bebida', status: 'delivered' },
+                          { id: '3', name: 'HEINEKEN 355 ML', price: 38, quantity: 1, category: 'Bebida', status: 'delivered' },
+                          { id: '4', name: 'BONLESS 200 GR', price: 118, quantity: 1, category: 'Comida', status: 'delivered' }
+                        ],
+                        payments: [
+                          {
+                            id: 'p1',
+                            amount: 212,
+                            tip: 0,
+                            method: 'Efectivo',
+                            receivedAmount: 500,
+                            change: 288,
+                            timestamp: new Date().toISOString()
+                          }
+                        ]
+                      };
+                      printThermalTicketHTML(sampleOrder, formSettings);
+                    }}
+                    className="px-4 py-2.5 bg-white text-black font-black text-xs uppercase tracking-wider rounded-xl hover:bg-slate-100 transition shadow flex items-center space-x-2 active:scale-95"
+                  >
+                    <Icons.Printer size={16} />
+                    <span>Probar Impresión Térmica</span>
+                  </button>
+
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const sampleOrder: Order = {
+                        id: 'demo-sample-print',
+                        orderNumber: 23,
+                        movementNumber: '8862',
+                        date: new Date().toISOString(),
+                        client: 'Mesa 9',
+                        table: 'Mesa 9',
+                        diners: formSettings.defaultDiners || 1,
+                        waiter: 'ADMINISTRACION',
+                        type: 'dine-in',
+                        payment: 'Efectivo',
+                        status: 'delivered',
+                        isPaid: true,
+                        total: 212,
+                        tip: 0,
+                        receivedAmount: 500,
+                        changeAmount: 288,
+                        closedAt: new Date().toISOString(),
+                        preticketPrintedAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+                        items: [
+                          { id: '1', name: 'CARTA BLANCA 355 ML', price: 28, quantity: 1, category: 'Bebida', status: 'delivered' },
+                          { id: '2', name: 'DOS EQUIS LAGER 355 ML', price: 28, quantity: 1, category: 'Bebida', status: 'delivered' },
+                          { id: '3', name: 'HEINEKEN 355 ML', price: 38, quantity: 1, category: 'Bebida', status: 'delivered' },
+                          { id: '4', name: 'BONLESS 200 GR', price: 118, quantity: 1, category: 'Comida', status: 'delivered' }
+                        ],
+                        payments: [
+                          {
+                            id: 'p1',
+                            amount: 212,
+                            tip: 0,
+                            method: 'Efectivo',
+                            receivedAmount: 500,
+                            change: 288,
+                            timestamp: new Date().toISOString()
+                          }
+                        ]
+                      };
+                      generateTicketPDF(sampleOrder, formSettings);
+                    }}
+                    className="px-4 py-2.5 bg-red-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-red-700 transition shadow flex items-center space-x-2 active:scale-95"
+                  >
+                    <Icons.FileText size={16} />
+                    <span>Descargar PDF</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Contenedor del Ticket Estilo Papel Térmico */}
+              <div className="flex justify-center py-4">
+                <div className="w-full max-w-sm bg-white text-slate-900 p-6 rounded-2xl shadow-2xl font-mono text-[11px] leading-relaxed border-t-8 border-red-600">
+                  <div className="text-center space-y-1">
+                    <p className="font-bold tracking-widest text-[10px] text-slate-500">*** TICKET DE PAGADO ***</p>
+                    <p className="font-black text-sm uppercase text-slate-900">{formSettings.name || 'DOS RODRIGUEZ'}</p>
+                    <p className="font-bold text-[10px] text-slate-600">VENTA EN MESA</p>
+                    {formSettings.showTicketAddress !== false && (
+                      <>
+                        <p className="text-[10px] text-slate-600">{formSettings.address || 'Mariano Escobedo 728-Norte, Centro'}</p>
+                        <p className="text-[10px] text-slate-600">{formSettings.addressLine2 || '64000 Monterrey, N.L.'}</p>
+                      </>
+                    )}
+                    {formSettings.showTicketPhone !== false && (
+                      <p className="text-[10px] text-slate-600">TEL: {formSettings.phone || '81 3128 3197'}</p>
+                    )}
+                    {formSettings.showTicketTaxId !== false && formSettings.taxId && (
+                      <p className="text-[10px] text-slate-600">RFC: {formSettings.taxId}</p>
+                    )}
+                    {formSettings.showTicketHeaderMsg !== false && formSettings.receiptHeader && (
+                      <p className="text-[10px] text-slate-500 italic mt-1 border-t border-dotted border-slate-300 pt-1">
+                        {formSettings.receiptHeader}
+                      </p>
+                    )}
+                  </div>
+
+                  {formSettings.showTicketDate !== false && (
+                    <>
+                      <div className="border-t border-dashed border-slate-400 my-3" />
+                      <div className="flex justify-between text-[10px]">
+                        <span>FECHA OPERACIÓN:</span>
+                        <span>{formatDateTime(new Date().toISOString()).date}</span>
+                      </div>
+                    </>
+                  )}
+
+                  {(formSettings.showTicketOrderNum !== false || formSettings.showTicketTable !== false || formSettings.showTicketWaiter !== false || formSettings.showTicketTimes !== false) && (
+                    <>
+                      <div className="border-t border-dashed border-slate-400 my-3" />
+                      <div className="space-y-0.5 text-[10px]">
+                        {formSettings.showTicketOrderNum !== false && (
+                          <div className="flex justify-between">
+                            <span>ORDEN:</span>
+                            <span className="font-bold">23</span>
+                          </div>
+                        )}
+                        {formSettings.showTicketTable !== false && (
+                          <div className="flex justify-between">
+                            <span>MESA:</span>
+                            <span className="font-bold">MESA 9</span>
+                          </div>
+                        )}
+                        {formSettings.showTicketWaiter !== false && (
+                          <div className="flex justify-between">
+                            <span>MESERO:</span>
+                            <span className="font-bold">ADMINISTRACION</span>
+                          </div>
+                        )}
+                        {formSettings.showTicketTimes !== false && (
+                          <div className="space-y-0.5 text-slate-600 mt-1 pt-1 border-t border-dotted border-slate-200">
+                            <div className="flex justify-between">
+                              <span>HORA ENTRADA:</span>
+                              <span>02:45 PM</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>HORA IMPRESIÓN:</span>
+                              <span>02:55 PM</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>HORA CIERRE:</span>
+                              <span>03:00 PM</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="border-t border-dashed border-slate-400 my-3" />
+
+                  <div className="space-y-1.5 text-[10px]">
+                    <div className="flex justify-between font-bold border-b border-slate-200 pb-1">
+                      <span className="w-8">CANT</span>
+                      <span className="flex-1">DESCRIPCION</span>
+                      <span className="w-14 text-right">IMPORTE</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="w-8">1</span>
+                      <span className="flex-1">CARTA BLANCA 355 ML</span>
+                      <span className="w-14 text-right">$28.00</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="w-8">1</span>
+                      <span className="flex-1">DOS EQUIS LAGER 355 ML</span>
+                      <span className="w-14 text-right">$28.00</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="w-8">1</span>
+                      <span className="flex-1">HEINEKEN 355 ML</span>
+                      <span className="w-14 text-right">$38.00</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="w-8">1</span>
+                      <span className="flex-1">BONLESS 200 GR</span>
+                      <span className="w-14 text-right">$118.00</span>
+                    </div>
+                  </div>
+
+                  {formSettings.showTicketTotalArticles !== false && (
+                    <>
+                      <div className="border-t border-dashed border-slate-400 my-3" />
+                      <div className="flex justify-between text-[10px] font-bold">
+                        <span>ARTÍCULOS:</span>
+                        <span>4</span>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="border-t border-dashed border-slate-400 my-3" />
+
+                  <div className="space-y-1 text-[10px]">
+                    {formSettings.showTicketSubtotal !== false && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>SUBTOTAL:</span>
+                        <span>${calculateTaxBreakdown(212, formSettings.taxRate ?? 16).subtotal.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {formSettings.showTicketTax !== false && (formSettings.includeTaxBreakdown ?? true) && (formSettings.taxRate ?? 16) > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>IVA ({formSettings.taxRate ?? 16}%):</span>
+                        <span>${calculateTaxBreakdown(212, formSettings.taxRate ?? 16).taxAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-black text-sm border-t border-slate-300 pt-1 text-slate-900">
+                      <span>GRAN TOTAL:</span>
+                      <span>$212.00</span>
+                    </div>
+                    {formSettings.showTicketAmountInWords !== false && (
+                      <div className="text-[9px] text-slate-500 font-bold uppercase mt-1 leading-tight text-center">
+                        SON: {numberToWordsSpanish(212, formSettings.currencyText || 'PESOS')}
+                      </div>
+                    )}
+                  </div>
+
+                  {formSettings.showTicketPaymentDetails !== false && (
+                    <>
+                      <div className="border-t border-dashed border-slate-400 my-3" />
+                      <div className="text-center font-bold text-[10px] mb-1">FORMAS DE PAGO</div>
+                      <div className="space-y-1 text-[10px]">
+                        <div className="flex justify-between font-bold">
+                          <span>EFECTIVO:</span>
+                          <span>$212.00</span>
+                        </div>
+                        <div className="flex justify-between text-slate-600">
+                          <span>IMPORTE RECIBIDO:</span>
+                          <span>$500.00</span>
+                        </div>
+                        <div className="flex justify-between text-slate-600 font-bold">
+                          <span>CAMBIO:</span>
+                          <span>$288.00</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {(formSettings.showTicketTerminal !== false || (formSettings.showTicketFooterMsg !== false && formSettings.receiptFooter)) && (
+                    <>
+                      <div className="border-t border-dashed border-slate-400 my-3" />
+                      <div className="text-center space-y-1 text-[10px] text-slate-500">
+                        {formSettings.showTicketTerminal !== false && (
+                          <>
+                            <p className="font-bold text-[9px] uppercase tracking-wider">
+                              TERMINAL: {formSettings.terminalName || '1 -- SERVER1'}
+                            </p>
+                            <p className="text-[8px] text-slate-400">
+                              FECHA IMPRESIÓN: {formatDateTime(new Date().toISOString()).formatted}
+                            </p>
+                          </>
+                        )}
+                        {formSettings.showTicketFooterMsg !== false && formSettings.receiptFooter && (
+                          <p className="italic pt-1">{formSettings.receiptFooter}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

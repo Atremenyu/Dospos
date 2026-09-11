@@ -1,11 +1,62 @@
-import { Order, CashShift } from '../types';
+import { Order, CashShift, StoreSettings } from '../types';
+import { storage } from './storage';
+import { numberToWordsSpanish } from '../utils/numberToWords';
+import {
+  formatReceiptDate,
+  formatReceiptTime12,
+  formatReceiptDateTime24,
+  getMovementNumber,
+  getOrderShortNumber,
+  getCleanTableLabel,
+  getServiceTitle,
+  calculateTaxBreakdown,
+  getPaymentSummaryRows
+} from '../utils/ticketFormatters';
 
 /**
- * Genera una impresión térmica directa usando el diálogo nativo de impresión del navegador.
- * Está optimizada para papel de 80mm y la serie Epson TM-T88.
- * Utiliza un iframe oculto para aplicar estilos de impresión limpios e inmediatos sin desordenar la pantalla principal.
+ * Resuelve las configuraciones del negocio a utilizar en la impresión
  */
-export const printThermalTicketHTML = (order: Order, restaurantName: string = 'MI RESTAURANTE') => {
+const resolveSettings = (settingsOrName?: StoreSettings | string): StoreSettings => {
+  const currentSettings = storage.getSettings();
+
+  if (!settingsOrName) {
+    return currentSettings;
+  }
+
+  if (typeof settingsOrName === 'string') {
+    return {
+      ...currentSettings,
+      name: settingsOrName || currentSettings.name
+    };
+  }
+
+  return {
+    ...currentSettings,
+    ...settingsOrName
+  };
+};
+
+/**
+ * Genera una impresión térmica directa basada en el formato estándar con:
+ * - Tipo de ticket (Ticket de Pagado / Preticket) y Tipo de Venta (Venta en Mesa / Mostrador / Domicilio)
+ * - Perfil completo del negocio: Nombre, Dirección 1, Dirección 2, Teléfono, RFC
+ * - Movimiento y Fecha de operación
+ * - Orden, Mesa, Personas, Mesero, Horas (Entrada, Preticket, Cierre)
+ * - Detalle de artículos con cantidad, descripción e importe
+ * - Conteo total de artículos
+ * - Subtotal, IVA desglosado y Gran Total en negrita destacada
+ * - Cantidad con letra en español (ej. DOSCIENTOS CUARENTA Y DOS PESOS 00/100 M.N.)
+ * - Tabla de Formas de Pago con Nombre, Monto recibido, Propina y Cambio
+ * - Terminal y Fecha/hora exacta de impresión
+ */
+export const printThermalTicketHTML = (
+  order: Order,
+  settingsOrName?: StoreSettings | string,
+  options?: { isPreticket?: boolean; waiterName?: string; terminalName?: string }
+) => {
+  const settings = resolveSettings(settingsOrName);
+  const isPreticket = options?.isPreticket || (!order.isPaid && order.status !== 'delivered');
+
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -21,58 +72,75 @@ export const printThermalTicketHTML = (order: Order, restaurantName: string = 'M
     return;
   }
 
-  // Formatear fecha y hora
-  const dateStr = new Date(order.date).toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
-  const timeStr = new Date(order.date).toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
+  // Título del ticket
+  const ticketMainTitle = isPreticket ? 'Preticket de Cuenta' : 'Ticket de Pagado';
+  const serviceSubtitle = getServiceTitle(order);
 
-  // Calcular subtotal
-  const subtotal = order.total - order.tip;
-  
-  // Generar HTML de los ítems
+  // Metadatos de la operación
+  const movement = getMovementNumber(order);
+  const operationDate = formatReceiptDate(order.date);
+  const orderNum = getOrderShortNumber(order);
+  const tableLabel = getCleanTableLabel(order);
+  const diners = order.diners || settings.defaultDiners || 1;
+  const waiter = options?.waiterName || order.waiter || 'ADMINISTRACION';
+
+  // Horas
+  const entryTime = formatReceiptTime12(order.date);
+  const preticketTime = isPreticket 
+    ? formatReceiptTime12(new Date()) 
+    : (order.preticketPrintedAt ? formatReceiptTime12(order.preticketPrintedAt) : '-');
+  const closeTime = isPreticket 
+    ? '-' 
+    : (order.closedAt ? formatReceiptTime12(order.closedAt) : (order.isPaid ? formatReceiptTime12(order.payments?.[0]?.timestamp || order.date) : '-'));
+
+  // Desglose de ítems
+  let totalArticles = 0;
   let itemsHtml = '';
-  order.items.forEach(item => {
+
+  order.items.forEach((item) => {
+    totalArticles += item.quantity;
+    const itemTotal = item.price * item.quantity;
+
     itemsHtml += `
-      <div style="margin-bottom: 4px;">
-        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 10px;">
-          <span>${item.quantity}x ${item.name}</span>
-          <span>$${(item.price * item.quantity).toLocaleString()}</span>
+      <div style="margin-bottom: 3px;">
+        <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: normal; line-height: 1.25;">
+          <span style="width: 26px; text-align: left; flex-shrink: 0;">${item.quantity}</span>
+          <span style="flex-grow: 1; text-align: left; padding-right: 6px; text-transform: uppercase; word-break: break-word;">${item.name}</span>
+          <span style="text-align: right; flex-shrink: 0;">$${itemTotal.toFixed(2)}</span>
         </div>
     `;
 
+    // Modificadores seleccionados
     if (item.selectedModifiers && item.selectedModifiers.length > 0) {
-      item.selectedModifiers.forEach(mod => {
+      item.selectedModifiers.forEach((mod) => {
+        const hasExtra = mod.extraPrice > 0;
         itemsHtml += `
-          <div style="display: flex; justify-content: space-between; font-size: 9px; color: #333; padding-left: 6px; font-style: italic;">
+          <div style="display: flex; justify-content: space-between; font-size: 9.5px; color: #222; padding-left: 26px; font-style: italic;">
             <span>+ ${mod.modifierName}</span>
-            <span>${mod.extraPrice > 0 ? `+$${mod.extraPrice.toLocaleString()}` : ''}</span>
+            <span>${hasExtra ? `+$${mod.extraPrice.toFixed(2)}` : ''}</span>
           </div>
         `;
       });
     }
 
+    // Opciones combo
     if (item.selectedComboOptions && item.selectedComboOptions.length > 0) {
-      item.selectedComboOptions.forEach(opt => {
+      item.selectedComboOptions.forEach((opt) => {
+        const hasExtra = opt.extraPrice > 0;
         itemsHtml += `
-          <div style="display: flex; justify-content: space-between; font-size: 9px; color: #333; padding-left: 6px; font-style: italic;">
-            <span>• Opción: ${opt.label}</span>
-            <span>${opt.extraPrice > 0 ? `+$${opt.extraPrice.toLocaleString()}` : ''}</span>
+          <div style="display: flex; justify-content: space-between; font-size: 9.5px; color: #222; padding-left: 26px; font-style: italic;">
+            <span>• ${opt.label}</span>
+            <span>${hasExtra ? `+$${opt.extraPrice.toFixed(2)}` : ''}</span>
           </div>
         `;
       });
     }
 
+    // Nota
     if (item.note) {
       itemsHtml += `
-        <div style="font-size: 11px; font-weight: bold; color: #000; padding-left: 4px; font-family: monospace; border: 1px solid #000; padding: 2px 4px; margin-top: 3px; border-radius: 2px; text-transform: uppercase;">
-          ⚠️ NOTA: ${item.note}
+        <div style="font-size: 9.5px; font-weight: bold; color: #000; padding-left: 26px; text-transform: uppercase;">
+          * NOTA: ${item.note}
         </div>
       `;
     }
@@ -80,91 +148,81 @@ export const printThermalTicketHTML = (order: Order, restaurantName: string = 'M
     itemsHtml += `</div>`;
   });
 
-  // Validaciones del tipo de servicio
-  let serviceTypeHeader = '';
-  const isDelivery = order.takeawayType === 'delivery';
-  const isUberOrDidi = order.takeawayType === 'uber' || order.takeawayType === 'didi';
+  // Totales financieros
+  const { subtotal, iva, granTotal } = calculateTaxBreakdown(
+    order.total,
+    settings.taxRate,
+    settings.includeTaxBreakdown
+  );
 
-  if (order.type === 'dine-in') {
-    serviceTypeHeader = `MESA: ${order.table || 'N/A'}`;
-  } else {
-    if (order.takeawayType === 'delivery') {
-      serviceTypeHeader = `DOMICILIO`;
-    } else if (order.takeawayType === 'local') {
-      serviceTypeHeader = `PARA LLEVAR`;
-    } else if (isUberOrDidi) {
-      serviceTypeHeader = `REPARTO: ${(order.takeawayType || '').toUpperCase()}`;
-    } else {
-      serviceTypeHeader = `PARA LLEVAR`;
-    }
-  }
+  // Cantidad con letra en español
+  const currencyName = settings.currencyText || (settings.currency === 'USD' ? 'DÓLARES' : 'PESOS');
+  const currencySuffix = settings.currency === 'USD' ? 'USD' : 'M.N.';
+  const amountInWords = numberToWordsSpanish(granTotal, currencyName, currencySuffix);
 
-  // Bloque destacado para despacho según tipo de servicio
-  let specialAlertBlock = '';
-  if (isDelivery) {
-    specialAlertBlock = `
-      <div style="border: 1.5px solid #000; padding: 6px; margin-top: 10px; text-align: center; font-family: sans-serif;">
-        <div style="font-size: 14px; font-weight: bold; letter-spacing: 0.5px;">DOMICILIO</div>
-        <div style="font-size: 11px; font-weight: bold; margin-top: 2px;">${order.client.toUpperCase()}</div>
-        ${order.address ? `<div style="font-size: 10px; font-weight: bold; margin-top: 4px; border-top: 1px dashed #000; padding-top: 4px; text-align: left; word-break: break-word;">DIRECCIÓN: ${order.address.toUpperCase()}</div>` : ''}
+  // Formas de pago
+  const paymentRows = getPaymentSummaryRows(order);
+  let paymentsHtml = '';
+  paymentRows.forEach((row) => {
+    paymentsHtml += `
+      <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+        <span style="flex: 2; text-align: left; text-transform: uppercase;">${row.nombre}</span>
+        <span style="flex: 1.2; text-align: right;">$${row.monto.toFixed(2)}</span>
+        <span style="flex: 1; text-align: right;">$${row.propina.toFixed(2)}</span>
+        <span style="flex: 1.2; text-align: right;">$${row.cambio.toFixed(2)}</span>
       </div>
     `;
-  } else if (isUberOrDidi) {
-    specialAlertBlock = `
-      <div style="border: 1.5px solid #000; padding: 6px; margin-top: 10px; text-align: center; font-family: sans-serif;">
-        <div style="font-size: 14px; font-weight: bold; letter-spacing: 0.5px;">${(order.takeawayType || '').toUpperCase()}</div>
-        <div style="font-size: 11px; font-weight: bold; margin-top: 2px;">${order.client.toUpperCase()}</div>
-      </div>
-    `;
-  } else if (order.type === 'dine-in') {
-    specialAlertBlock = `
-      <div style="border: 1px solid #000; padding: 4px; margin-top: 10px; text-align: center; font-family: sans-serif;">
-        <div style="font-size: 10px; font-weight: bold; letter-spacing: 0.5px;">CONSUMO EN COMEDOR</div>
-        <div style="font-size: 11px; font-weight: bold; margin-top: 2px;">MESA: ${order.table || 'N/A'}</div>
-      </div>
-    `;
-  } else {
-    specialAlertBlock = `
-      <div style="border: 1px solid #000; padding: 4px; margin-top: 10px; text-align: center; font-family: sans-serif;">
-        <div style="font-size: 10px; font-weight: bold; letter-spacing: 0.5px;">PARA LLEVAR / MOSTRADOR</div>
-        <div style="font-size: 10px; font-weight: bold; margin-top: 2px;">CLIENTE: ${order.client.toUpperCase()}</div>
-      </div>
-    `;
-  }
+  });
 
-  const addressLineHtml = order.address 
-    ? `<div style="margin-top: 4px; font-size: 9px; word-break: break-all;"><b>Dirección:</b> ${order.address}</div>`
-    : '';
+  const terminalLabel = options?.terminalName || settings.terminalName || '1 -- SERVER1';
+  const printTimestamp = formatReceiptDateTime24(new Date());
 
-  // Detalle de transacciones / desglose de caja rápida si existe
-  let paymentDetailsHtml = '';
-  if (order.payments && order.payments.length > 0) {
-    order.payments.forEach(p => {
-      paymentDetailsHtml += `
-        <div style="display: flex; justify-content: space-between; font-size: 9px; margin-top: 1px;">
-          <span>Monto Recibido (${p.method}):</span>
-          <span>$${p.amount.toLocaleString()}</span>
-        </div>
-      `;
-    });
-  }
+  const showAddress = settings.showTicketAddress !== false;
+  const showPhone = settings.showTicketPhone !== false;
+  const showTaxId = settings.showTicketTaxId !== false;
+  const showHeaderMsg = settings.showTicketHeaderMsg !== false;
+  const showDate = settings.showTicketDate !== false;
+  const showOrderNum = settings.showTicketOrderNum !== false;
+  const showTable = settings.showTicketTable !== false;
+  const showWaiter = settings.showTicketWaiter !== false;
+  const showTimes = settings.showTicketTimes !== false;
+  const showDeliveryAddress = settings.showTicketDeliveryAddress !== false;
+  const showTotalArticles = settings.showTicketTotalArticles !== false;
+  const showSubtotal = settings.showTicketSubtotal !== false;
+  const showTax = settings.showTicketTax !== false && (settings.includeTaxBreakdown !== false) && settings.taxRate > 0;
+  const showAmountInWords = settings.showTicketAmountInWords !== false;
+  const showPaymentDetails = settings.showTicketPaymentDetails !== false;
+  const showTerminal = settings.showTicketTerminal !== false;
+  const showFooterMsg = settings.showTicketFooterMsg !== false;
+
+  // Dirección de envío en caso de entrega a domicilio
+  const deliveryAddressBlock = (order.address && showDeliveryAddress) ? `
+    <div style="margin-top: 6px; padding: 4px; border: 1px dashed #000; font-size: 10px; text-align: left;">
+      <div style="font-weight: bold;">DIRECCIÓN DE ENTREGA:</div>
+      <div style="word-break: break-word; text-transform: uppercase;">${order.address}</div>
+      ${order.client ? `<div style="margin-top: 2px;"><b>Cliente:</b> ${order.client.toUpperCase()}</div>` : ''}
+    </div>
+  ` : '';
 
   const htmlContent = `
     <!DOCTYPE html>
-    <html>
+    <html lang="es">
     <head>
       <meta charset="utf-8">
       <title>Ticket ${order.id.slice(-8)}</title>
       <style>
         * {
           box-sizing: border-box;
+          margin: 0;
+          padding: 0;
         }
         body {
-          width: 49mm; /* Ajustado para papel térmico de 55mm para evitar cortes laterales */
+          width: 72mm;
+          max-width: 100%;
           margin: 0 auto;
-          padding: 0;
+          padding: 2mm 3mm;
           font-family: 'Courier New', Courier, monospace;
-          font-size: 10px;
+          font-size: 11px;
           line-height: 1.3;
           color: #000;
           background: #fff;
@@ -173,100 +231,216 @@ export const printThermalTicketHTML = (order: Order, restaurantName: string = 'M
         }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
+        .text-left { text-align: left; }
         .divider {
           border-top: 1px dashed #000;
-          margin: 4px 0;
+          margin: 5px 0;
           width: 100%;
           height: 0;
         }
         .bold { font-weight: bold; }
-        .large { font-size: 11px; }
-        .xlarge { font-size: 13px; }
-        
+        .row-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 10.5px;
+          line-height: 1.35;
+        }
+        .row-meta .label {
+          text-align: left;
+        }
+        .row-meta .val {
+          text-align: right;
+          font-weight: normal;
+        }
         @media print {
           body {
-            width: 55mm;
-            margin: 0;
-            padding: 0 2mm;
+            width: 72mm;
+            padding: 0 1.5mm;
+            margin: 0 auto;
           }
           @page {
-            size: 55mm auto;
+            size: 80mm auto;
             margin: 0;
           }
         }
       </style>
     </head>
     <body>
-      <div class="text-center">
-        <div class="bold xlarge" style="margin-bottom: 2px; font-family: Arial, sans-serif; letter-spacing: -0.5px;">${restaurantName.toUpperCase()}</div>
-        <div style="font-size: 8px; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 4px;">¡GRACIAS POR TU VISITA!</div>
+      <!-- TÍTULO SUPERIOR -->
+      <div class="text-center" style="margin-bottom: 4px;">
+        <div style="font-size: 12.5px; font-weight: bold; text-transform: uppercase;">${ticketMainTitle}</div>
+        <div style="font-size: 11px; text-transform: uppercase; margin-top: 1px;">${serviceSubtitle}</div>
       </div>
 
       <div class="divider"></div>
 
-      <div style="font-size: 9px; margin-bottom: 2px;">
-        <div style="display: flex; justify-content: space-between;">
-          <span><b>Ticket:</b> #${order.id.slice(-6)}</span>
-          <span><b>Fecha:</b> ${dateStr}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 2px;">
-          <span><b>Servicio:</b> ${serviceTypeHeader}</span>
-          <span><b>Hora:</b> ${timeStr}</span>
-        </div>
-        <div style="margin-top: 3px;"><b>Cliente:</b> ${order.client || 'Mostrador'}</div>
-        ${addressLineHtml}
+      <!-- PERFIL DEL NEGOCIO -->
+      <div class="text-center" style="margin-bottom: 4px;">
+        <div style="font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">${settings.name || 'DOS RODRIGUEZ'}</div>
+        ${showAddress && settings.address ? `<div style="font-size: 10px; text-transform: uppercase; margin-top: 1px;">${settings.address}</div>` : ''}
+        ${showAddress && settings.addressLine2 ? `<div style="font-size: 10px; text-transform: uppercase; margin-top: 1px;">${settings.addressLine2}</div>` : ''}
+        ${showPhone && settings.phone ? `<div style="font-size: 10.5px; margin-top: 1px;">${settings.phone}</div>` : ''}
+        ${showTaxId && settings.taxId ? `<div style="font-size: 9.5px; text-transform: uppercase; margin-top: 1px;">RFC: ${settings.taxId}</div>` : ''}
+        ${showHeaderMsg && settings.receiptHeader ? `<div style="font-size: 9.5px; margin-top: 3px; font-style: italic;">${settings.receiptHeader}</div>` : ''}
       </div>
 
+      ${showDate ? `
       <div class="divider"></div>
-
-      <div style="font-weight: bold; margin-bottom: 4px; font-size: 9.5px; display: flex; justify-content: space-between;">
-        <span>CANT / PRODUCTO</span>
-        <span>IMPORTE</span>
-      </div>
-
-      <div class="divider"></div>
-
-      ${itemsHtml}
-
-      <div class="divider"></div>
-
-      <div style="font-size: 10px; line-height: 1.35;">
-        <div style="display: flex; justify-content: space-between;">
-          <span>Subtotal:</span>
-          <span>$${subtotal.toLocaleString()}</span>
+      <div style="margin: 3px 0;">
+        <div class="row-meta">
+          <span class="label">Fecha operación:</span>
+          <span class="val">${operationDate}</span>
         </div>
-        ${order.tip > 0 ? `
-        <div style="display: flex; justify-content: space-between;">
-          <span>Propina:</span>
-          <span>$${order.tip.toLocaleString()}</span>
+      </div>
+      ` : ''}
+
+      <!-- DATOS DE LA ORDEN, MESA Y HORAS -->
+      ${(showOrderNum || showTable || showWaiter || showTimes) ? `
+      <div class="divider"></div>
+      <div style="margin: 3px 0;">
+        ${showOrderNum ? `
+        <div class="row-meta">
+          <span class="label">Orden:</span>
+          <span class="val bold">${orderNum}</span>
         </div>` : ''}
-        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 11.5px; margin-top: 4px; font-family: Arial, sans-serif;">
-          <span>TOTAL:</span>
-          <span>$${order.total.toLocaleString()}</span>
+        ${showTable ? `
+        <div class="row-meta">
+          <span class="label">Mesa:</span>
+          <span class="val bold">${tableLabel}</span>
+        </div>` : ''}
+        ${showWaiter ? `
+        <div class="row-meta">
+          <span class="label">Mesero:</span>
+          <span class="val bold text-right" style="text-transform: uppercase;">${waiter}</span>
+        </div>` : ''}
+        ${showTimes ? `
+        <div class="row-meta">
+          <span class="label">Hora Entrada:</span>
+          <span class="val">${entryTime}</span>
         </div>
+        ${preticketTime !== '-' ? `
+        <div class="row-meta">
+          <span class="label">Hora Impresión:</span>
+          <span class="val">${preticketTime}</span>
+        </div>` : ''}
+        ${(!isPreticket && closeTime !== '-') ? `
+        <div class="row-meta">
+          <span class="label">Hora Cierre:</span>
+          <span class="val">${closeTime}</span>
+        </div>` : ''}` : ''}
+      </div>
+      ` : ''}
+
+      ${deliveryAddressBlock}
+
+      <div class="divider"></div>
+
+      <!-- ENCABEZADO DE ARTÍCULOS -->
+      <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: normal; margin-bottom: 2px;">
+        <span style="width: 26px; text-align: left;">Cant.</span>
+        <span style="flex-grow: 1; text-align: left;">Descripción</span>
+        <span style="text-align: right;">Importe</span>
       </div>
 
       <div class="divider"></div>
 
-      <div style="font-size: 9px;">
-        <div style="display: flex; justify-content: space-between;">
-          <span>Estado Pago:</span>
-          <span class="bold">${order.isPaid ? 'PAGADO' : 'PENDIENTE'}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 2px;">
-          <span>Método Pago:</span>
-          <span>${order.payment}</span>
-        </div>
-        ${paymentDetailsHtml}
+      <!-- LISTA DE ARTÍCULOS -->
+      <div style="margin: 2px 0;">
+        ${itemsHtml}
       </div>
 
-      ${specialAlertBlock}
-
-      <div style="margin-top: 20px; text-align: center; font-size: 9px; font-family: Arial, sans-serif; color: #555;">
-        <div>Punto de Venta DosPOS</div>
-        <div>Corte de cuenta original</div>
+      ${showTotalArticles ? `
+      <div class="divider"></div>
+      <!-- CONTEO DE ARTÍCULOS -->
+      <div style="font-size: 11px; margin: 2px 0;">
+        <b>Artículos:</b> ${totalArticles}
       </div>
-      <div style="height: 12mm;"></div> <!-- Margen para el corte de papel físico -->
+      ` : ''}
+
+      <div class="divider"></div>
+
+      <!-- TOTALES FINANCIEROS -->
+      <div style="font-size: 11px; line-height: 1.4; margin: 4px 0;">
+        ${(order.discountAmount && order.discountAmount > 0 && order.subtotalBeforeDiscount) ? `
+        <div style="display: flex; justify-content: flex-end;">
+          <span style="width: 120px; text-align: right; padding-right: 8px;">Subtotal:</span>
+          <span style="width: 75px; text-align: right;">$${order.subtotalBeforeDiscount.toFixed(2)}</span>
+        </div>
+        <div style="display: flex; justify-content: flex-end; color: #000; font-weight: bold;">
+          <span style="width: 120px; text-align: right; padding-right: 8px;">Descuento${order.discountReason ? ` (${order.discountReason})` : ''}:</span>
+          <span style="width: 75px; text-align: right;">-$${order.discountAmount.toFixed(2)}</span>
+        </div>
+        ` : (showSubtotal ? `
+        <div style="display: flex; justify-content: flex-end;">
+          <span style="width: 90px; text-align: right; padding-right: 8px;">Subtotal:</span>
+          <span style="width: 75px; text-align: right;">$${subtotal.toFixed(2)}</span>
+        </div>
+        ` : '')}
+        ${showTax ? `
+        <div style="display: flex; justify-content: flex-end;">
+          <span style="width: 90px; text-align: right; padding-right: 8px;">IVA${settings.taxRate ? ` (${settings.taxRate}%)` : ''}:</span>
+          <span style="width: 75px; text-align: right;">$${iva.toFixed(2)}</span>
+        </div>
+        ` : ''}
+        ${order.tip > 0 ? `
+        <div style="display: flex; justify-content: flex-end;">
+          <span style="width: 90px; text-align: right; padding-right: 8px;">Propina:</span>
+          <span style="width: 75px; text-align: right;">$${order.tip.toFixed(2)}</span>
+        </div>
+        ` : ''}
+        <div style="display: flex; justify-content: flex-end; font-size: 14px; font-weight: bold; margin-top: 3px;">
+          <span style="width: 110px; text-align: right; padding-right: 8px;">Gran Total:</span>
+          <span style="width: 85px; text-align: right;">$${(granTotal + (order.tip || 0)).toFixed(2)}</span>
+        </div>
+      </div>
+
+      <!-- CANTIDAD EN LETRAS -->
+      ${showAmountInWords ? `
+      <div class="text-center" style="font-size: 10px; font-weight: normal; margin: 6px 0 3px 0; line-height: 1.25; text-transform: uppercase;">
+        ${amountInWords}
+      </div>
+      ` : ''}
+
+      <!-- FORMAS DE PAGO -->
+      ${(showPaymentDetails && !isPreticket && order.isPaid && paymentRows.length > 0) ? `
+      <div class="divider"></div>
+      <div class="text-center" style="font-size: 11px; font-weight: bold; margin-bottom: 3px;">
+        FORMAS DE PAGO
+      </div>
+      <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 2px;">
+        <span style="flex: 2; text-align: left;">Nombre</span>
+        <span style="flex: 1.2; text-align: right;">Monto</span>
+        <span style="flex: 1; text-align: right;">Propina</span>
+        <span style="flex: 1.2; text-align: right;">Cambio</span>
+      </div>
+      <div class="divider" style="margin: 2px 0 4px 0;"></div>
+      <div>
+        ${paymentsHtml}
+      </div>
+      ` : ''}
+
+      <!-- PIE DE TICKET: TERMINAL Y FECHA IMPRESIÓN -->
+      ${showTerminal ? `
+      <div class="divider"></div>
+      <div style="margin-top: 4px; font-size: 10px;">
+        <div class="row-meta">
+          <span class="label">Terminal:</span>
+          <span class="val">${terminalLabel}</span>
+        </div>
+        <div class="row-meta">
+          <span class="label">Fecha impresión:</span>
+          <span class="val">${printTimestamp}</span>
+        </div>
+      </div>
+      ` : ''}
+
+      ${(showFooterMsg && settings.receiptFooter) ? `
+        <div class="text-center" style="margin-top: 8px; font-size: 9.5px; font-style: italic;">
+          ${settings.receiptFooter}
+        </div>
+      ` : ''}
+
+      <div style="height: 12mm;"></div> <!-- Margen para corte físico de guillotina -->
     </body>
     </html>
   `;
@@ -275,21 +449,26 @@ export const printThermalTicketHTML = (order: Order, restaurantName: string = 'M
   doc.write(htmlContent);
   doc.close();
 
-  // Esperar un instante para asegurar la carga del iframe y lanzar diálogo
+  // Enviar comando a diálogo de impresión
   setTimeout(() => {
     iframe.contentWindow?.focus();
     iframe.contentWindow?.print();
-    
-    // Remover el elemento después de dar margen suficiente para la cola de impresión
+
+    // Limpieza segura del elemento temporal
     setTimeout(() => {
       if (document.body.contains(iframe)) {
         document.body.removeChild(iframe);
       }
-    }, 45000); 
+    }, 45000);
   }, 250);
 };
 
+/**
+ * Imprime el ticket de corte de caja usando el perfil del negocio
+ */
 export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: string = 'MI RESTAURANTE') => {
+  const settings = resolveSettings(restaurantName);
+
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
   iframe.style.right = '0';
@@ -307,15 +486,15 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
 
   const openingDateStr = new Date(shift.openingTime).toLocaleString('es-ES', {
     day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
   });
   
   const closingDateStr = shift.closingTime 
     ? new Date(shift.closingTime).toLocaleString('es-ES', {
         day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
       })
-    : 'NO CERRADO';
+    : 'TURNO ACTIVO';
 
   const expectedTotal = shift.expectedAmount || 0;
   const actualTotal = shift.actualAmount || 0;
@@ -334,139 +513,140 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
   const differenceTr = shift.differenceTransferencia || 0;
 
   const expectedO = shift.expectedOtros || 0;
+  const terminalLabel = settings.terminalName || '1 -- SERVER1';
+  const printTimestamp = formatReceiptDateTime24(new Date());
 
   const htmlContent = `
     <!DOCTYPE html>
-    <html>
+    <html lang="es">
     <head>
       <meta charset="utf-8">
+      <title>Corte de Caja</title>
       <style>
-        @media print {
-          body {
-            margin: 0;
-            padding: 0;
-            width: 55mm;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 9.5px;
-            line-height: 1.3;
-            color: #000;
-          }
-          @page {
-            size: 55mm auto;
-            margin: 0;
-          }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
         }
         body {
-          width: 49mm; /* Ajustado para papel térmico de 55mm para evitar cortes laterales */
           margin: 0 auto;
-          padding: 4px;
+          padding: 2mm 3mm;
+          width: 72mm;
+          max-width: 100%;
           font-family: 'Courier New', Courier, monospace;
-          font-size: 9.5px;
+          font-size: 10.5px;
           line-height: 1.3;
-          background-color: #fff;
           color: #000;
+          background: #fff;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
-        .center { text-align: center; }
-        .right { text-align: right; }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
         .bold { font-weight: bold; }
-        .border-dashed { border-top: 1px dashed #000; margin: 6px 0; }
-        .border-double { border-top: 3px double #000; margin: 6px 0; }
-        .title { font-size: 13px; font-weight: bold; margin: 4px 0; text-transform: uppercase; }
-        .subtitle { font-size: 10px; font-weight: bold; margin: 2px 0; }
-        .flex { display: flex; justify-content: space-between; }
-        .ml-2 { padding-left: 8px; }
-        .section-title { font-weight: bold; text-decoration: underline; margin-top: 8px; margin-bottom: 4px; }
+        .divider {
+          border-top: 1px dashed #000;
+          margin: 4px 0;
+          height: 0;
+        }
+        .row {
+          display: flex;
+          justify-content: space-between;
+          margin: 1.5px 0;
+        }
+        @media print {
+          body {
+            width: 72mm;
+            padding: 0 1.5mm;
+            margin: 0;
+          }
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+        }
       </style>
     </head>
     <body>
-      <div class="center">
-        <div class="bold" style="font-size: 12px;">${restaurantName.toUpperCase()}</div>
-        <div class="title">CORTE DE CAJA</div>
-        <div class="subtitle">RESUMEN DE CIERRE</div>
+      <div class="text-center" style="margin-bottom: 4px;">
+        <div style="font-size: 13px; font-weight: bold; text-transform: uppercase;">${settings.name}</div>
+        ${settings.address ? `<div style="font-size: 9.5px; text-transform: uppercase;">${settings.address}</div>` : ''}
+        ${settings.addressLine2 ? `<div style="font-size: 9.5px; text-transform: uppercase;">${settings.addressLine2}</div>` : ''}
+        ${settings.phone ? `<div style="font-size: 10px;">TEL: ${settings.phone}</div>` : ''}
       </div>
 
-      <div class="border-dashed"></div>
+      <div class="divider"></div>
 
-      <div class="bold">DATOS DEL TURNO</div>
-      <div class="flex"><span>ID Turno:</span><span class="bold">${shift.id}</span></div>
-      <div class="flex"><span>Cajero/a:</span><span>${shift.userName}</span></div>
-      <div class="flex"><span>Apertura:</span><span>${openingDateStr}</span></div>
-      <div class="flex"><span>Cierre:</span><span>${closingDateStr}</span></div>
-      <div class="flex"><span>Fondo Inicial:</span><span>$${shift.initialFund.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-
-      <div class="border-dashed"></div>
-
-      <div class="section-title">RESUMEN GLOBAL</div>
-      <div class="flex"><span>Fondo + Ventas Esperado:</span><span class="bold">$${expectedTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex"><span>Total Contado Real:</span><span class="bold">$${actualTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      
-      <div class="flex" style="font-size: 12px; margin-top: 4px;">
-        <span class="bold">Diferencia Total:</span>
-        <span class="bold">${differenceTotal >= 0 ? '+' : ''}$${differenceTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      <div class="text-center bold" style="font-size: 12px; margin: 3px 0;">
+        CORTE DE TURNO DE CAJA
       </div>
 
-      <div class="border-dashed"></div>
+      <div class="divider"></div>
 
-      <div class="section-title">DETALLE POR MÉTODO DE PAGO</div>
-      
-      <div class="bold" style="margin-top: 6px;">1. EFECTIVO</div>
-      <div class="flex ml-2"><span>Esperado en Caja:</span><span>$${expectedC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex ml-2"><span>Contado Físico:</span><span>$${actualC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex ml-2" style="font-style: italic;">
-        <span>Diferencia Cash:</span>
-        <span>${differenceC >= 0 ? '+' : ''}$${differenceC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      <div class="row"><span>Cajero:</span><span class="bold">${shift.userName}</span></div>
+      <div class="row"><span>Apertura:</span><span>${openingDateStr}</span></div>
+      <div class="row"><span>Cierre:</span><span>${closingDateStr}</span></div>
+      <div class="row"><span>Fondo Inicial:</span><span>$${shift.initialFund.toFixed(2)}</span></div>
+
+      <div class="divider"></div>
+
+      <div class="bold" style="margin-bottom: 2px;">DESGLOSE POR MÉTODO</div>
+      <div class="row"><span>Efectivo Sistema:</span><span>$${expectedC.toFixed(2)}</span></div>
+      <div class="row"><span>Efectivo Real:</span><span>$${actualC.toFixed(2)}</span></div>
+      <div class="row" style="color: ${differenceC < 0 ? '#b91c1c' : '#047857'};">
+        <span>Dif. Efectivo:</span><span class="bold">$${differenceC.toFixed(2)}</span>
       </div>
 
-      <div class="bold" style="margin-top: 6px;">2. TARJETA</div>
-      <div class="flex ml-2"><span>Ventas Esperadas:</span><span>$${expectedT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex ml-2"><span>Ventas Contadas:</span><span>$${actualT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex ml-2" style="font-style: italic;">
-        <span>Diferencia Tarjeta:</span>
-        <span>${differenceT >= 0 ? '+' : ''}$${differenceT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-      </div>
+      <div style="height: 3px;"></div>
+      <div class="row"><span>Tarjetas Sistema:</span><span>$${expectedT.toFixed(2)}</span></div>
+      <div class="row"><span>Tarjetas Real:</span><span>$${actualT.toFixed(2)}</span></div>
+      <div class="row"><span>Dif. Tarjetas:</span><span>$${differenceT.toFixed(2)}</span></div>
 
-      <div class="bold" style="margin-top: 6px;">3. TRANSFERENCIA</div>
-      <div class="flex ml-2"><span>Ventas Esperadas:</span><span>$${expectedTr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex ml-2"><span>Ventas Contadas:</span><span>$${actualTr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      <div class="flex ml-2" style="font-style: italic;">
-        <span>Diferencia Transf.:</span>
-        <span>${differenceTr >= 0 ? '+' : ''}$${differenceTr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-      </div>
+      <div style="height: 3px;"></div>
+      <div class="row"><span>Transferencias Sist:</span><span>$${expectedTr.toFixed(2)}</span></div>
+      <div class="row"><span>Transferencias Real:</span><span>$${actualTr.toFixed(2)}</span></div>
+      <div class="row"><span>Dif. Transf:</span><span>$${differenceTr.toFixed(2)}</span></div>
 
       ${expectedO > 0 ? `
-      <div class="bold" style="margin-top: 6px;">4. OTROS / PLATAFORMAS (Uber/Didi)</div>
-      <div class="flex ml-2"><span>Ventas Registradas:</span><span>$${expectedO.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      <div style="height: 3px;"></div>
+      <div class="row"><span>Apps / Otros:</span><span>$${expectedO.toFixed(2)}</span></div>
       ` : ''}
 
-      ${shift.expectedCourtesy && shift.expectedCourtesy > 0 ? `
-      <div class="bold" style="margin-top: 6px;">5. CORTESÍAS</div>
-      <div class="flex ml-2"><span>Monto Autorizado:</span><span>$${shift.expectedCourtesy.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-      ` : ''}
+      <div class="divider"></div>
 
-      <div class="border-dashed"></div>
+      <div class="row bold" style="font-size: 12px; margin: 4px 0;">
+        <span>TOTAL COBRADO:</span>
+        <span>$${expectedTotal.toFixed(2)}</span>
+      </div>
+      <div class="row bold" style="font-size: 12px;">
+        <span>TOTAL DECLARADO:</span>
+        <span>$${actualTotal.toFixed(2)}</span>
+      </div>
+      <div class="row bold" style="font-size: 12px; color: ${differenceTotal < 0 ? '#b91c1c' : '#047857'}; margin-top: 2px;">
+        <span>DIFERENCIA TOTAL:</span>
+        <span>$${differenceTotal.toFixed(2)}</span>
+      </div>
 
       ${shift.notes ? `
-        <div class="bold">NOTAS / OBSERVACIONES:</div>
-        <div style="font-style: italic; white-space: pre-wrap; margin-top: 4px; border: 1px solid #aaa; padding: 4px; font-family: monospace;">${shift.notes}</div>
-        <div class="border-dashed"></div>
+        <div class="divider"></div>
+        <div style="font-size: 9.5px; margin-top: 3px;">
+          <b>Observaciones:</b> ${shift.notes}
+        </div>
       ` : ''}
 
-      <div style="margin-top: 35px; text-align: center;">
-        <div style="border-top: 1px solid #000; width: 80%; margin: 0 auto 5px auto;"></div>
-        <div style="font-size: 9px; font-weight: bold;">FIRMA DEL CAJERO</div>
-        <div style="font-size: 10px;">${shift.userName}</div>
+      <div class="divider"></div>
+
+      <div style="margin-top: 4px; font-size: 9.5px;">
+        <div class="row"><span>Terminal:</span><span>${terminalLabel}</span></div>
+        <div class="row"><span>Fecha impresión:</span><span>${printTimestamp}</span></div>
       </div>
 
-      <div style="margin-top: 35px; text-align: center;">
-        <div style="border-top: 1px solid #000; width: 80%; margin: 0 auto 5px auto;"></div>
-        <div style="font-size: 9px; font-weight: bold;">FIRMA DEL SUPERVISOR</div>
+      <div style="margin-top: 25px; text-align: center;">
+        <div style="border-top: 1px solid #000; width: 80%; margin: 0 auto 3px auto;"></div>
+        <div style="font-size: 9.5px;">Firma del Cajero</div>
       </div>
 
-      <div style="margin-top: 25px; text-align: center; font-size: 8px; color: #555;">
-        <div>Punto de Venta DosPOS</div>
-        <div>Comprobante de arqueo impreso localmente</div>
-      </div>
-      <div style="height: 12mm;"></div> <!-- Margen para corte físico -->
+      <div style="height: 12mm;"></div>
     </body>
     </html>
   `;
@@ -478,11 +658,10 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
   setTimeout(() => {
     iframe.contentWindow?.focus();
     iframe.contentWindow?.print();
-    
     setTimeout(() => {
       if (document.body.contains(iframe)) {
         document.body.removeChild(iframe);
       }
-    }, 45000); 
+    }, 45000);
   }, 250);
 };

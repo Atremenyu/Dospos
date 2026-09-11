@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, Order, ViewState, CartItem, PaymentMethod, Category, Table, OrderType, TakeawayType, OrderStatus, User, Shift, SelectedModifier, CashShift, UserRole, PaymentRecord, StoreSettings, AdminTabType, ComboOption, Ingredient } from './types';
-import { storage } from './services/storage';
+import { Product, Order, ViewState, CartItem, PaymentMethod, Category, Table, OrderType, TakeawayType, OrderStatus, User, Shift, SelectedModifier, CashShift, UserRole, PaymentRecord, StoreSettings, AdminTabType, ComboOption, Ingredient, Promotion } from './types';
+import { storage, generateSecureId } from './services/storage';
 import { INITIAL_PRODUCTS, INITIAL_CATEGORIES, INITIAL_TABLES, INITIAL_USERS, ROLES, Icons } from './constants';
 import POSView from './components/POSView';
 import DispatchView from './components/DispatchView';
@@ -29,6 +29,8 @@ const App: React.FC = () => {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [cashShifts, setCashShifts] = useState<CashShift[]>([]);
   const [roles, setRoles] = useState<UserRole[]>(ROLES);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem("dospos_current_user");
@@ -41,11 +43,8 @@ const App: React.FC = () => {
     return localStorage.getItem("dospos_current_shift_id") || null;
   });
   
-  const [settings, setSettings] = useState<StoreSettings>({
-    name: 'DosPOS',
-    eventType: 'Restaurante',
-    currency: 'MXN',
-    taxRate: 0,
+  const [settings, setSettings] = useState<StoreSettings>(() => {
+    return storage.getSettings();
   });
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -149,26 +148,28 @@ const App: React.FC = () => {
 
       const serverHasData = Object.keys(serverState).length > 0;
 
+      const apiToLocalStorageMap: Record<string, string> = {
+        products: 'dospos_productos',
+        orders: 'dospos_ordenes',
+        categories: 'dospos_categorias',
+        tables: 'dospos_tablas',
+        settings: 'dospos_store_settings',
+        users: 'dospos_usuarios',
+        shifts: 'dospos_turnos',
+        cashShifts: 'dospos_turnos_caja',
+        roles: 'dospos_roles',
+        ingredients: 'dospos_ingredientes',
+        promotions: 'dospos_promociones',
+        restaurantName: 'dospos_restaurant_name',
+        eventType: 'dospos_event_type',
+      };
+
       const initializeKey = (key: string, localValue: any, fallbackValue: any) => {
+        const lsKey = apiToLocalStorageMap[key];
         if (serverHasData && serverState[key] !== undefined) {
           const data = serverState[key];
           storage.setLastKnownServerState(key, data);
           
-          const apiToLocalStorageMap: Record<string, string> = {
-            products: 'dospos_productos',
-            orders: 'dospos_ordenes',
-            categories: 'dospos_categorias',
-            tables: 'dospos_tablas',
-            settings: 'dospos_store_settings',
-            users: 'dospos_usuarios',
-            shifts: 'dospos_turnos',
-            cashShifts: 'dospos_turnos_caja',
-            roles: 'dospos_roles',
-            ingredients: 'dospos_ingredientes',
-            restaurantName: 'dospos_restaurant_name',
-            eventType: 'dospos_event_type',
-          };
-          const lsKey = apiToLocalStorageMap[key];
           if (lsKey) {
             if (typeof data === 'string') {
               localStorage.setItem(lsKey, data);
@@ -178,7 +179,8 @@ const App: React.FC = () => {
           }
           return data;
         } else {
-          return (localValue && (Array.isArray(localValue) ? localValue.length > 0 : true)) ? localValue : fallbackValue;
+          const hasStored = lsKey ? localStorage.getItem(lsKey) !== null : false;
+          return hasStored ? localValue : fallbackValue;
         }
       };
 
@@ -191,10 +193,12 @@ const App: React.FC = () => {
       const savedShifts = initializeKey('shifts', storage.getShifts(), []);
       const savedCashShifts = initializeKey('cashShifts', storage.getCashShifts(), []);
       const savedRoles = initializeKey('roles', storage.getRoles(), ROLES);
+      const savedPromotions = initializeKey('promotions', storage.getPromotions() || [], []);
       const savedSettings = initializeKey('settings', storage.getSettings(), null);
 
-      const rawProducts = savedProducts.length > 0 ? savedProducts : INITIAL_PRODUCTS;
-      const cleanedProducts = rawProducts.map((p: any) => ({
+      const hasStoredProducts = (serverHasData && serverState['products'] !== undefined) || localStorage.getItem('dospos_productos') !== null;
+      const rawProducts = hasStoredProducts ? savedProducts : INITIAL_PRODUCTS;
+      const cleanedProducts = (rawProducts || []).map((p: any) => ({
         ...p,
         modifierGroups: p.modifierGroups?.filter((mg: any) => 
           !mg.name.toLowerCase().includes('término') && 
@@ -203,8 +207,10 @@ const App: React.FC = () => {
       }));
       setProducts(cleanedProducts);
       setIngredients(savedIngredients);
-      setCategories(savedCategories.length > 0 ? savedCategories : INITIAL_CATEGORIES);
-      setTables(savedTables.length > 0 ? savedTables : INITIAL_TABLES);
+      const hasStoredCategories = (serverHasData && serverState['categories'] !== undefined) || localStorage.getItem('dospos_categorias') !== null;
+      setCategories(hasStoredCategories ? savedCategories : INITIAL_CATEGORIES);
+      const hasStoredTables = (serverHasData && serverState['tables'] !== undefined) || localStorage.getItem('dospos_tablas') !== null;
+      setTables(hasStoredTables ? savedTables : INITIAL_TABLES);
       const migratedOrders = savedOrders.map((o: any) => ({
         ...o,
         payments: o.payments || o.partialPayments?.map((p: any) => ({
@@ -221,6 +227,7 @@ const App: React.FC = () => {
       setShifts(savedShifts);
       setCashShifts(savedCashShifts);
       setRoles(savedRoles.length > 0 ? savedRoles : ROLES);
+      setPromotions(savedPromotions);
       
       if (savedSettings) {
         setSettings(savedSettings);
@@ -275,6 +282,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (isLoaded) storage.saveRoles(roles);
   }, [roles, isLoaded]);
+
+  useEffect(() => {
+    if (isLoaded) storage.savePromotions(promotions);
+  }, [promotions, isLoaded]);
 
   // Set initial load to false after loading is complete and state has settled
   useEffect(() => {
@@ -480,6 +491,9 @@ const App: React.FC = () => {
       } else if (key === "roles") {
         setRoles((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_roles", JSON.stringify(data));
+      } else if (key === "promotions") {
+        setPromotions((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+        localStorage.setItem("dospos_promociones", JSON.stringify(data));
       } else if (key === "settings") {
         setSettings((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_store_settings", JSON.stringify(data));
@@ -520,6 +534,7 @@ const App: React.FC = () => {
     if (data.shifts) storage.saveShifts(data.shifts);
     if (data.cashShifts) storage.saveCashShifts(data.cashShifts);
     if (data.roles) storage.saveRoles(data.roles);
+    if (data.promotions) storage.savePromotions(data.promotions);
 
     // 2. Actualización de estado de React para reflejar en UI
     setProducts(data.products || []);
@@ -541,6 +556,7 @@ const App: React.FC = () => {
     setShifts(data.shifts || []);
     setCashShifts(data.cashShifts || []);
     setRoles(data.roles || ROLES);
+    setPromotions(data.promotions || []);
     setSettings(data.settings || storage.getSettings());
     
     // 3. Limpiar carrito para evitar conflictos con productos viejos
@@ -730,7 +746,20 @@ const App: React.FC = () => {
     printCashShiftTicketHTML(closedShift, settings.name || 'DOSPOS');
   };
 
-  const getCashShiftStats = (shift: CashShift) => {
+  const staleOpenCashShift = useMemo(() => {
+    const open = cashShifts.find(s => s.status === 'open');
+    if (!open) return null;
+    const openingDate = new Date(open.openingTime);
+    const today = new Date();
+    // Identificar turnos abiertos en días de calendario anteriores
+    const isPastCalendarDay = 
+      openingDate.getFullYear() !== today.getFullYear() ||
+      openingDate.getMonth() !== today.getMonth() ||
+      openingDate.getDate() !== today.getDate();
+    return isPastCalendarDay ? open : null;
+  }, [cashShifts]);
+
+  const getCashShiftStats = (shift: CashShift, cutoffOverride?: number) => {
     let salesTotal = 0;
     let cashSales = 0;
     let cardSales = 0;
@@ -739,7 +768,26 @@ const App: React.FC = () => {
     let courtesySales = 0;
 
     const shiftOpeningTime = new Date(shift.openingTime).getTime();
-    const shiftClosingTime = shift.closingTime ? new Date(shift.closingTime).getTime() : null;
+    
+    // Si el turno está cerrado, usar su fecha de cierre.
+    // Si está abierto pero es de un día previo, acotar el corte al fin de esa jornada para evitar empalmar ventas de días no usados.
+    let shiftClosingTime: number;
+    if (cutoffOverride) {
+      shiftClosingTime = cutoffOverride;
+    } else if (shift.closingTime) {
+      shiftClosingTime = new Date(shift.closingTime).getTime();
+    } else {
+      const openingDate = new Date(shift.openingTime);
+      const today = new Date();
+      const isPastDay = openingDate.toDateString() !== today.toDateString();
+      if (isPastDay) {
+        const endOfOpeningDay = new Date(openingDate);
+        endOfOpeningDay.setHours(23, 59, 59, 999);
+        shiftClosingTime = Math.max(endOfOpeningDay.getTime(), shiftOpeningTime);
+      } else {
+        shiftClosingTime = Date.now();
+      }
+    }
 
     orders.forEach(o => {
       // Excluir órdenes canceladas del corte de caja
@@ -749,8 +797,7 @@ const App: React.FC = () => {
         // Si hay registros de pagos explícitos (pagos divididos o actualizados), procesar cada pago
         o.payments.forEach(p => {
           const paymentTime = new Date(p.timestamp).getTime();
-          const inShift = paymentTime >= shiftOpeningTime && 
-                          (!shiftClosingTime || paymentTime <= shiftClosingTime);
+          const inShift = paymentTime >= shiftOpeningTime && paymentTime <= shiftClosingTime;
           
           if (inShift) {
             const amount = p.amount;
@@ -774,8 +821,7 @@ const App: React.FC = () => {
       } else if (o.isPaid) {
         // Si el pedido está pagado pero no tiene un arreglo de pagos explícito (pedidos anteriores o de legado)
         const orderTime = new Date(o.date).getTime();
-        const inShift = orderTime >= shiftOpeningTime && 
-                        (!shiftClosingTime || orderTime <= shiftClosingTime);
+        const inShift = orderTime >= shiftOpeningTime && orderTime <= shiftClosingTime;
         
         if (inShift) {
           const amount = o.total;
@@ -1026,91 +1072,127 @@ const App: React.FC = () => {
     takeawayType?: TakeawayType,
     tip: number = 0,
     payLater: boolean = false,
-    address?: string
+    address?: string,
+    cashReceived?: number,
+    discountAmount: number = 0,
+    discountReason?: string,
+    appliedPromotionId?: string
   ) => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || isSubmittingOrder) return;
+    setIsSubmittingOrder(true);
 
-    // Discount stock before clearing cart
-    discountStock(cart);
+    try {
+      // Discount stock before clearing cart
+      discountStock(cart);
 
-    const finalClient = client.trim() === '' ? 'Mostrador' : client;
-    const finalTable = table.trim() === '' ? 'Mostrador' : table;
+      const finalClient = client.trim() === '' ? 'Mostrador' : client.trim();
+      const finalTable = table.trim() === '' ? 'Mostrador' : table.trim();
+      const finalTableLower = finalTable.toLowerCase();
 
-    const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-    
-    // Check if it's a dine-in order and if there's already an open order for this table
-    if (type === 'dine-in' && finalTable !== 'Mostrador') {
-      const existingOrder = orders.find(o => o.table === finalTable && o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled');
-      if (existingOrder) {
-        // Add items to existing order
-        setOrders(prev => prev.map(o => {
-          if (o.id === existingOrder.id) {
-            const updatedItems = [...o.items];
-            cart.forEach(cartItem => {
-              // New items are always 'pending'
-              const newItem = { ...cartItem, status: 'pending' as OrderStatus };
-              
-              // We don't merge same products if statuses would be different, 
-              // but for simplicity in kitchen view, we'll append unique item entries if they are new
-              updatedItems.push(newItem);
-            });
-            return {
-              ...o,
-              items: updatedItems,
-              total: o.total + total,
-              status: resolveOrderStatus(updatedItems, o.status), // Smart resolution instead of hardcoded 'pending'
-              updatedAt: new Date().toISOString()
-            };
-          }
-          return o;
-        }));
-        setCart([]);
-        setView('dispatch');
-        return;
+      const itemsSubtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+      const effectiveDiscount = Math.min(itemsSubtotal, Math.max(0, discountAmount));
+      const total = Math.max(0, itemsSubtotal - effectiveDiscount);
+      
+      // Check if it's a dine-in order and if there's already an open order for this table
+      if (type === 'dine-in' && finalTableLower !== 'mostrador') {
+        const existingOrder = orders.find(o => 
+          o.table && o.table.trim().toLowerCase() === finalTableLower && 
+          o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled'
+        );
+        if (existingOrder) {
+          // Add items to existing order
+          setOrders(prev => prev.map(o => {
+            if (o.id === existingOrder.id) {
+              const updatedItems = [...o.items];
+              cart.forEach(cartItem => {
+                // New items are always 'pending'
+                const newItem = { ...cartItem, status: 'pending' as OrderStatus };
+                updatedItems.push(newItem);
+              });
+              return {
+                ...o,
+                items: updatedItems,
+                total: o.total + total,
+                status: resolveOrderStatus(updatedItems, o.status), // Smart resolution instead of hardcoded 'pending'
+                updatedAt: new Date().toISOString()
+              };
+            }
+            return o;
+          }));
+          setCart([]);
+          setView('dispatch');
+          return;
+        }
       }
-    }
 
-    const isPaidImmediately = type !== 'dine-in' && !payLater;
-    const newPayment: PaymentRecord[] = isPaidImmediately ? [{
-      id: Math.random().toString(36).substr(2, 9),
-      method: payment,
-      amount: total,
-      tip: tip,
-      timestamp: new Date().toISOString()
-    }] : [];
+      const isPaidImmediately = type !== 'dine-in' && !payLater;
+      const received = isPaidImmediately && cashReceived !== undefined ? cashReceived : total + tip;
+      const change = isPaidImmediately && cashReceived !== undefined ? Math.max(0, cashReceived - (total + tip)) : 0;
+      
+      const newPayment: PaymentRecord[] = isPaidImmediately ? [{
+        id: generateSecureId('pay'),
+        method: payment,
+        amount: total,
+        tip: tip,
+        receivedAmount: received,
+        change: change,
+        timestamp: new Date().toISOString()
+      }] : [];
 
-    const newOrder: Order = {
-      id: Date.now().toString(),
-      date: new Date().toISOString(),
-      client: finalClient,
-      address: address?.trim() ? address.trim() : undefined,
-      table: finalTable,
-      payment: isPaidImmediately ? payment : 'Pendiente',
-      status: 'pending',
-      type,
-      takeawayType,
-      total,
-      tip: isPaidImmediately ? tip : 0,
-      items: cart.map(item => ({ 
-        ...item, 
-        status: 'pending' as OrderStatus,
-        paidQuantity: isPaidImmediately ? item.quantity : 0 
-      })),
-      isPaid: isPaidImmediately,
-      payments: newPayment,
-      updatedAt: new Date().toISOString()
-    };
+      // Calculate sequential order number for today
+      const todayStr = new Date().toDateString();
+      const todayOrders = orders.filter(o => new Date(o.date).toDateString() === todayStr);
+      const maxTodayNum = todayOrders.reduce((max, o) => Math.max(max, o.orderNumber || 0), 0);
+      const nextOrderNumber = (maxTodayNum % 99) + 1;
 
-    setOrders(prev => [newOrder, ...prev]);
-    setCart([]);
-    setSelectedTableId(null);
-    
-    // Check if can access dispatch before redirecting, otherwise go to first allowed view
-    if (canAccessView('dispatch')) {
-      setView('dispatch');
-    } else {
-      const firstAllowed = currentUserRole?.permissions[0] || 'login';
-      setView(firstAllowed);
+      const newOrder: Order = {
+        id: generateSecureId('ord'),
+        orderNumber: nextOrderNumber,
+        movementNumber: (orders.length + 8862).toString(),
+        date: new Date().toISOString(),
+        client: finalClient,
+        address: address?.trim() ? address.trim() : undefined,
+        table: finalTable,
+        diners: settings.defaultDiners || 1,
+        waiter: currentUser?.name || 'ADMINISTRACION',
+        payment: isPaidImmediately ? payment : 'Pendiente',
+        status: 'pending',
+        type,
+        takeawayType,
+        subtotalBeforeDiscount: effectiveDiscount > 0 ? itemsSubtotal : undefined,
+        discountAmount: effectiveDiscount > 0 ? effectiveDiscount : undefined,
+        discountReason: effectiveDiscount > 0 ? discountReason : undefined,
+        appliedPromotionId: effectiveDiscount > 0 ? appliedPromotionId : undefined,
+        total,
+        tip: isPaidImmediately ? tip : 0,
+        receivedAmount: isPaidImmediately ? received : undefined,
+        changeAmount: isPaidImmediately ? change : undefined,
+        closedAt: isPaidImmediately ? new Date().toISOString() : undefined,
+        items: cart.map(item => ({ 
+          ...item, 
+          status: 'pending' as OrderStatus,
+          paidQuantity: isPaidImmediately ? item.quantity : 0 
+        })),
+        isPaid: isPaidImmediately,
+        payments: newPayment,
+        updatedAt: new Date().toISOString()
+      };
+
+      setOrders(prev => [newOrder, ...prev]);
+      setCart([]);
+      setSelectedTableId(null);
+      
+      // Check if can access dispatch before redirecting, otherwise go to first allowed view
+      if (canAccessView('dispatch')) {
+        setView('dispatch');
+      } else {
+        const firstAllowed = currentUserRole?.permissions[0] || 'login';
+        setView(firstAllowed);
+      }
+    } finally {
+      setTimeout(() => {
+        setIsSubmittingOrder(false);
+      }, 500);
     }
   };
 
@@ -1305,16 +1387,21 @@ const App: React.FC = () => {
     }, 10000);
   };
 
-  const recordPayment = (orderId: string, amount: number, method: PaymentMethod, tip: number = 0) => {
+  const recordPayment = (orderId: string, amount: number, method: PaymentMethod, tip: number = 0, cashReceived?: number) => {
     setOrders(prev => {
       const orderToPay = prev.find(o => o.id === orderId);
       if (!orderToPay) return prev;
+
+      const received = cashReceived !== undefined ? cashReceived : amount + tip;
+      const change = Math.max(0, received - (amount + tip));
 
       const newPayment: PaymentRecord = {
         id: Math.random().toString(36).substr(2, 9),
         amount,
         method,
         tip,
+        receivedAmount: received,
+        change,
         timestamp: new Date().toISOString()
       };
 
@@ -1337,6 +1424,9 @@ const App: React.FC = () => {
             status: allPaid ? 'delivered' : o.status,
             payments: updatedPayments,
             tip: (o.tip || 0) + tip,
+            closedAt: allPaid ? new Date().toISOString() : o.closedAt,
+            receivedAmount: received,
+            changeAmount: change,
             items: o.items.map(item => ({ 
               ...item, 
               paidQuantity: allPaid ? item.quantity : (item.paidQuantity || 0) + (item.quantity * (amount / o.total))
@@ -1349,16 +1439,35 @@ const App: React.FC = () => {
     });
   };
 
-  const payOrder = (orderId: string, payment: PaymentMethod, tip: number = 0, amount?: number) => {
+  const payOrder = (orderId: string, payment: PaymentMethod, tip: number = 0, amount?: number, cashReceived?: number) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
     
     const alreadyPaid = order.payments?.reduce((acc, p) => acc + p.amount, 0) || 0;
     const remaining = Math.max(0, order.total - alreadyPaid);
+    if (remaining <= 0) return; // Prevenir pagos dobles
     
     const amountToPay = amount !== undefined ? Math.min(amount, remaining) : remaining;
     
-    recordPayment(orderId, amountToPay, payment, tip);
+    recordPayment(orderId, amountToPay, payment, tip, cashReceived);
+  };
+
+  const reopenOrder = (orderId: string) => {
+    setOrders(prev => prev.map(o => {
+      if (o.id === orderId) {
+        const updatedItems = o.items.map(item => ({
+          ...item,
+          status: 'preparing' as OrderStatus
+        }));
+        return {
+          ...o,
+          status: 'preparing',
+          items: updatedItems,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return o;
+    }));
   };
 
   const cancelOrder = (orderId: string) => {
@@ -1555,6 +1664,23 @@ const App: React.FC = () => {
         </div>
       </header>
 
+      {staleOpenCashShift && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-md text-xs font-black uppercase tracking-wider z-20">
+          <div className="flex items-center space-x-2 text-center sm:text-left">
+            <Icons.AlertTriangle size={18} className="shrink-0" />
+            <span>
+              Turno pendiente de jornada anterior ({new Date(staleOpenCashShift.openingTime).toLocaleDateString()} - {staleOpenCashShift.userName}). Cierra este turno para evitar que las ventas de hoy se empalmen con el corte anterior.
+            </span>
+          </div>
+          <button 
+            onClick={() => setShowClosingModal(true)}
+            className="bg-black text-white px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition shrink-0"
+          >
+            Cerrar Turno Anterior
+          </button>
+        </div>
+      )}
+
       <main className="flex-grow overflow-auto pb-24 md:pb-0">
         <div className="h-full">
           {view === 'pos' && canAccessView('pos') && (
@@ -1579,6 +1705,8 @@ const App: React.FC = () => {
               onToggleOrders={() => setShowOrdersSlider(true)}
               users={users}
               roles={roles}
+              promotions={promotions}
+              isSubmitting={isSubmittingOrder}
             />
           )}
           {view === 'central' && canAccessView('central') && (
@@ -1606,6 +1734,8 @@ const App: React.FC = () => {
               onCloseCashShift={() => setShowClosingModal(true)}
               ingredients={ingredients}
               setIngredients={setIngredients}
+              promotions={promotions}
+              onUpdatePromotions={setPromotions}
             />
           )}
           {view === 'dispatch' && canAccessView('dispatch') && (
@@ -1620,7 +1750,9 @@ const App: React.FC = () => {
               onMarkReady={markOrderReady}
               onUpdateTime={updateOrderTime}
               onUpdateItemStatus={updateItemStatus}
+              onReopenOrder={reopenOrder}
               restaurantName={settings.name}
+              settings={settings}
             />
           )}
           {view === 'tables' && canAccessView('tables') && (
@@ -1636,6 +1768,7 @@ const App: React.FC = () => {
               onCancel={cancelOrder}
               onDeliver={deliverOrder}
               restaurantName={settings.name}
+              settings={settings}
               users={users}
               roles={roles}
             />
@@ -1657,6 +1790,7 @@ const App: React.FC = () => {
         onCancel={cancelOrder}
         users={users}
         roles={roles}
+        settings={settings}
       />
 
       {/* Global Notification */}

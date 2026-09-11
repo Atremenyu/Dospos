@@ -249,6 +249,37 @@ Si deseas que la impresora imprima **instantáneamente** en cuanto haces clic en
 
 ---
 
+### ⚙️ 8.1. Configuración Completa del Perfil de Negocio y Formato de Tickets
+
+Desde el panel de **Configuración** (`⚙️`), ahora dispones del control total de los datos impresos en los tickets térmicos y comprobantes PDF:
+
+1. **Perfil del Negocio / Razón Social**:
+   * **Nombre del Negocio / Razón Social**: Aparece centrado en la cabecera del ticket (Ej: `DOS RODRIGUEZ`).
+   * **Giro o Rubro Comercial**: Tipo de servicio (Ej: `Restaurante`).
+   * **Dirección Comercial en 2 Líneas**:
+     * *Línea 1*: Calle, número y colonia (Ej: `Mariano Escobedo 728-Norte, Centro`).
+     * *Línea 2*: Ciudad, estado y código postal (Ej: `64000 Monterrey, N.L.`).
+   * **Teléfono del Negocio**: Teléfono directo para contacto y servicio a domicilio (Ej: `81 3128 3197`).
+   * **RFC / Identificador Fiscal**: Número de registro ante la autoridad tributaria (SAT, RUT, CUIT, etc.).
+   * **Correo Electrónico**: Para aclaraciones y facturación.
+
+2. **Opciones Avanzadas de Ticket e Impresión**:
+   * **Identificador / Nombre de Terminal**: Etiqueta que identifica la caja o estación en el pie del ticket (Ej: `1 -- SERVER1`).
+   * **Tasa de Impuesto / IVA (%)**: Porcentaje impositivo aplicable (por defecto `16%`).
+   * **Desglosar Subtotal e IVA**: Conmutador para mostrar u ocultar la línea de Subtotal, IVA calculado y Gran Total.
+   * **Moneda y Denominación en Letras**: Define la divisa (MXN, USD, EUR, etc.) y la palabra que acompaña la conversión automática a letras (Ej: `PESOS`, `DÓLARES`). La conversión numérica genera leyendas oficiales como: `SON: DOSCIENTOS DOCE PESOS 00/100 M.N.`.
+   * **Comensales por Defecto**: Número base de personas que se cargará al abrir una cuenta de mesa.
+   * **Mensajes de Cortesía**:
+     * *Cabecera*: Bienvenida, datos de Wi-Fi, promociones.
+     * *Pie de Página*: Despedida, redes sociales (`@minegocio`), horarios de atención.
+
+3. **Vista Previa en Vivo y Pruebas Directas**:
+   * En la parte inferior de la sección de Configuración, encontrarás un renderizador visual en tiempo real que emula el papel térmico de 80mm con tipografía monoespaciada exacta.
+   * Cualquier cambio que hagas en los campos se reflejará instantáneamente en el recibo.
+   * Incluye los botones **"Probar Impresión Térmica"** y **"Descargar PDF"** para validar cómo saldrá el comprobante sin necesidad de abrir una orden real.
+
+---
+
 ### 🚀 Cómo Usar las Nuevas Funciones de Impresión en la App
 
 El sistema ahora cuenta con botones dedicados en color oscuro con el icono de la impresora 🖨️ para una impresión rápida:

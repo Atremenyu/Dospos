@@ -11,37 +11,100 @@ const PORT = 3000;
 // Body parser with size limits for bulk synchronizations
 app.use(express.json({ limit: "50mb" }));
 
-// Database configuration
-const DATA_DIR = path.join(process.cwd(), "data");
+// Database configuration & Railway volume mount path resolution
+function resolveDataDir(): string {
+  if (process.env.DATA_DIR) {
+    return process.env.DATA_DIR;
+  }
+  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+    return process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  }
+  if (fs.existsSync("/app/data") || process.env.RAILWAY_ENVIRONMENT) {
+    return "/app/data";
+  }
+  return path.join(process.cwd(), "data");
+}
+
+const DATA_DIR = resolveDataDir();
 const DB_FILE = path.join(DATA_DIR, "db.json");
+const BACKUP_FILE = path.join(DATA_DIR, "db.json.bak");
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    console.log("Created data directory at:", DATA_DIR);
+  } catch (err) {
+    console.error("Error creating data directory:", err);
+  }
 }
 
 // In-memory DB representation
 let dbState: Record<string, any> = {};
 
-// Load existing database on startup
-if (fs.existsSync(DB_FILE)) {
-  try {
-    const rawData = fs.readFileSync(DB_FILE, "utf-8");
-    dbState = JSON.parse(rawData);
-    console.log("Database loaded successfully from:", DB_FILE);
-  } catch (error) {
-    console.error("Error reading database file, starting clean:", error);
-    dbState = {};
+// Load existing database on startup with backup fallback
+function loadDatabase() {
+  if (fs.existsSync(DB_FILE)) {
+    try {
+      const rawData = fs.readFileSync(DB_FILE, "utf-8");
+      if (rawData && rawData.trim().length > 0) {
+        dbState = JSON.parse(rawData);
+        console.log("Database loaded successfully from:", DB_FILE);
+        return;
+      }
+    } catch (error) {
+      console.error("Error reading main database file, checking backup:", error);
+    }
   }
+
+  // Check backup if main failed or was empty
+  if (fs.existsSync(BACKUP_FILE)) {
+    try {
+      const rawBackup = fs.readFileSync(BACKUP_FILE, "utf-8");
+      if (rawBackup && rawBackup.trim().length > 0) {
+        dbState = JSON.parse(rawBackup);
+        console.log("Restored database from backup file:", BACKUP_FILE);
+        return;
+      }
+    } catch (bkErr) {
+      console.error("Error reading backup file:", bkErr);
+    }
+  }
+
+  console.log("No existing database found, starting clean in:", DATA_DIR);
+  dbState = {};
 }
 
-// Thread-safe save helper
+loadDatabase();
+
+// Thread-safe save helper with automatic backup and atomic write
 function saveDbToDisk() {
   try {
-    // Write atomically using temporary file to prevent corruption
-    const tempFile = DB_FILE + ".tmp";
-    fs.writeFileSync(tempFile, JSON.stringify(dbState, null, 2), "utf-8");
-    fs.renameSync(tempFile, DB_FILE);
+    const serialized = JSON.stringify(dbState, null, 2);
+    const tempFile = path.join(DATA_DIR, `db_${Date.now()}.tmp`);
+
+    // Write to temporary file in the same directory first
+    fs.writeFileSync(tempFile, serialized, "utf-8");
+
+    // Keep backup of existing valid file
+    if (fs.existsSync(DB_FILE)) {
+      try {
+        fs.copyFileSync(DB_FILE, BACKUP_FILE);
+      } catch (e) {
+        // Non-fatal backup error
+      }
+    }
+
+    // Atomic rename
+    try {
+      fs.renameSync(tempFile, DB_FILE);
+    } catch (renameErr) {
+      // Fallback if cross-device or volume lock prevents rename in Docker
+      fs.writeFileSync(DB_FILE, serialized, "utf-8");
+      if (fs.existsSync(tempFile)) {
+        try { fs.unlinkSync(tempFile); } catch (e) {}
+      }
+    }
   } catch (error) {
     console.error("Error saving database to disk:", error);
   }
@@ -85,7 +148,7 @@ function reconcileTwoOrders(a: any, b: any): any {
   if (paymentsA > paymentsB) return a;
   if (paymentsB > paymentsA) return b;
 
-  // 5. Fallback: Compare items or default to the incoming one (b)
+  // 5. Fallback: Compare items count (more items usually means user added products)
   const itemsA = Array.isArray(a.items) ? a.items.length : 0;
   const itemsB = Array.isArray(b.items) ? b.items.length : 0;
   if (itemsA > itemsB) return a;
@@ -95,8 +158,13 @@ function reconcileTwoOrders(a: any, b: any): any {
 }
 
 function mergeOrders(existing: any[], incoming: any[]): any[] {
-  if (!Array.isArray(existing)) return incoming || [];
-  if (!Array.isArray(incoming)) return existing || [];
+  // Safeguard: never wipe existing orders if client sent an empty or invalid array
+  if (!Array.isArray(incoming) || incoming.length === 0) {
+    return Array.isArray(existing) ? existing : [];
+  }
+  if (!Array.isArray(existing) || existing.length === 0) {
+    return incoming;
+  }
 
   const existingMap = new Map(existing.map((o) => [o.id, o]));
   const mergedMap = new Map(existingMap);
@@ -120,6 +188,12 @@ function mergeOrders(existing: any[], incoming: any[]): any[] {
     return bTime - aTime;
   });
 }
+
+// Entities that are purely additive audit logs and merged by item ID
+const MANAGED_BY_ID_KEYS = [
+  "shifts", 
+  "cashShifts"
+];
 
 function mergeById(existing: any[], incoming: any[]): any[] {
   if (!Array.isArray(existing)) return incoming || [];
@@ -161,7 +235,7 @@ function mergeBulkState(existingState: Record<string, any>, incomingState: Recor
     const data = incomingState[key];
     if (key === "orders") {
       newState[key] = mergeOrders(newState[key], data);
-    } else if (["ingredients", "products", "shifts", "cashShifts", "tables", "users", "roles"].includes(key)) {
+    } else if (MANAGED_BY_ID_KEYS.includes(key)) {
       newState[key] = mergeById(newState[key], data);
     } else {
       newState[key] = data;
@@ -199,7 +273,7 @@ wss.on("connection", (ws) => {
         if (key) {
           if (key === "orders") {
             dbState[key] = mergeOrders(dbState[key], data);
-          } else if (["ingredients", "products", "shifts", "cashShifts", "tables", "users", "roles"].includes(key)) {
+          } else if (MANAGED_BY_ID_KEYS.includes(key)) {
             dbState[key] = mergeById(dbState[key], data);
           } else {
             dbState[key] = data;
@@ -227,6 +301,50 @@ wss.on("connection", (ws) => {
 });
 
 // API Routes
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    dataDir: DATA_DIR,
+    dbFile: DB_FILE,
+    dbExists: fs.existsSync(DB_FILE),
+    backupExists: fs.existsSync(BACKUP_FILE),
+    counts: {
+      orders: Array.isArray(dbState.orders) ? dbState.orders.length : 0,
+      products: Array.isArray(dbState.products) ? dbState.products.length : 0,
+      cashShifts: Array.isArray(dbState.cashShifts) ? dbState.cashShifts.length : 0,
+      promotions: Array.isArray(dbState.promotions) ? dbState.promotions.length : 0,
+    }
+  });
+});
+
+app.get("/api/next-order-number", (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const orders: any[] = Array.isArray(dbState.orders) ? dbState.orders : [];
+    
+    // Find highest order number used today
+    const todayOrders = orders.filter((o) => {
+      if (!o || !o.date) return false;
+      return o.date.startsWith(todayStr) || new Date(o.date).toISOString().startsWith(todayStr);
+    });
+
+    let maxNum = 0;
+    todayOrders.forEach((o) => {
+      const n = parseInt(o.orderNumber, 10);
+      if (!isNaN(n) && n > maxNum && n < 1000) {
+        maxNum = n;
+      }
+    });
+
+    const nextOrderNumber = (maxNum % 99) + 1;
+    const movementNumber = (orders.length + 8862).toString();
+
+    res.json({ nextOrderNumber, movementNumber });
+  } catch (err) {
+    res.json({ nextOrderNumber: 1, movementNumber: "8862" });
+  }
+});
+
 app.get("/api/db", (req, res) => {
   res.json(dbState);
 });
@@ -238,7 +356,7 @@ app.post("/api/db/save", (req, res) => {
   }
   if (key === "orders") {
     dbState[key] = mergeOrders(dbState[key], data);
-  } else if (["ingredients", "products", "shifts", "cashShifts", "tables", "users", "roles"].includes(key)) {
+  } else if (MANAGED_BY_ID_KEYS.includes(key)) {
     dbState[key] = mergeById(dbState[key], data);
   } else {
     dbState[key] = data;

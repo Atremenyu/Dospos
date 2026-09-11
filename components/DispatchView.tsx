@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Order, PaymentMethod, Table } from '../types';
+import { Order, PaymentMethod, Table, StoreSettings } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
 import { printThermalTicketHTML } from '../services/thermalPrinter';
@@ -11,24 +11,27 @@ interface DispatchViewProps {
   orders: Order[];
   tables: Table[];
   onDeliver: (id: string) => void;
-  onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number) => void;
+  onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number, cashReceived?: number) => void;
   onCancel: (id: string) => void;
   onTransfer: (id: string, newTable: string) => void;
   onStartPreparing: (id: string, mins: number) => void;
   onMarkReady: (id: string) => void;
   onUpdateTime: (id: string, mins: number) => void;
   onUpdateItemStatus: (orderId: string, itemIdx: number, status: any) => void;
+  onReopenOrder?: (id: string) => void;
   restaurantName?: string;
+  settings?: StoreSettings;
 }
 
 const DispatchView: React.FC<DispatchViewProps> = ({ 
-  orders, tables, onDeliver, onPay, onCancel, onTransfer, onStartPreparing, onMarkReady, onUpdateTime, onUpdateItemStatus, restaurantName 
+  orders, tables, onDeliver, onPay, onCancel, onTransfer, onStartPreparing, onMarkReady, onUpdateTime, onUpdateItemStatus, onReopenOrder, restaurantName, settings 
 }) => {
   const [selectedPayment, setSelectedPayment] = useState<Record<string, PaymentMethod>>({});
   const [cashReceived, setCashReceived] = useState<Record<string, string>>({});
   const [tipAmounts, setTipAmounts] = useState<Record<string, string>>({});
   const [transferingId, setTransferingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Confirmation state
   const [confirmState, setConfirmState] = useState<{
@@ -165,6 +168,12 @@ const DispatchView: React.FC<DispatchViewProps> = ({
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
               {order.client} • {new Date(order.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
+            {order.discountAmount && order.discountAmount > 0 && (
+              <div className="flex items-center space-x-1 mt-0.5 text-[8px] font-black uppercase tracking-wider text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-md w-max">
+                <Icons.Tag size={10} className="shrink-0" />
+                <span>Promo: -${order.discountAmount.toLocaleString()} ({order.discountReason || 'Descuento'})</span>
+              </div>
+            )}
             {order.address && (
               <div className="flex items-center space-x-1 mt-1 text-[9px] font-bold text-red-600 uppercase tracking-wider bg-red-50 px-2 py-0.5 rounded-md w-max">
                 <Icons.MapPin size={10} className="shrink-0" />
@@ -176,14 +185,14 @@ const DispatchView: React.FC<DispatchViewProps> = ({
           <div className="flex flex-col space-y-2 items-end">
             <div className="flex space-x-1.5">
               <button 
-                onClick={() => printThermalTicketHTML(order, restaurantName)}
+                onClick={() => printThermalTicketHTML(order, settings || restaurantName)}
                 title="Imprimir Ticket Térmico"
                 className="p-1 bg-slate-900 text-white rounded-lg hover:bg-black transition shadow-sm"
               >
                 <Icons.Printer size={16} />
               </button>
               <button 
-                onClick={() => generateTicketPDF(order, restaurantName)}
+                onClick={() => generateTicketPDF(order, settings || restaurantName)}
                 title="Descargar PDF"
                 className="p-1 bg-white text-slate-400 border border-slate-100 rounded-lg hover:text-red-600 hover:border-red-600 transition shadow-sm"
               >
@@ -473,6 +482,26 @@ const DispatchView: React.FC<DispatchViewProps> = ({
                                          setCashReceived(prev => ({ ...prev, [order.id]: val }));
                                        }
                                      }}
+                                     onKeyDown={(e) => {
+                                       if (e.key === 'Enter') {
+                                         e.preventDefault();
+                                         const meth = selectedPayment[order.id] || 'Efectivo';
+                                         const amountToPay = order.total - (order.payments?.reduce((acc, p) => acc + p.amount, 0) || 0);
+                                         const tip = parseFloat(tipAmounts[order.id]) || 0;
+                                         const required = amountToPay + tip;
+                                         const received = parseFloat(cashReceived[order.id]);
+                                         if (isNaN(received) || received < required) {
+                                           alert(`El cliente debe entregar al menos $${required.toLocaleString()} (Total + Propina)`);
+                                           return;
+                                         }
+                                         onPay(order.id, meth, tip, undefined, received);
+                                         setTipAmounts(prev => {
+                                           const next = { ...prev };
+                                           delete next[order.id];
+                                           return next;
+                                         });
+                                       }
+                                     }}
                                    />
                                  </div>
                                </div>
@@ -569,7 +598,7 @@ const DispatchView: React.FC<DispatchViewProps> = ({
                           return;
                         }
                       }
-                      onPay(order.id, meth, tip);
+                      onPay(order.id, meth, tip, undefined, meth === 'Efectivo' ? parseFloat(cashReceived[order.id]) : undefined);
                       setTipAmounts(prev => {
                         const next = { ...prev };
                         delete next[order.id];
@@ -596,91 +625,204 @@ const DispatchView: React.FC<DispatchViewProps> = ({
 
   const allActiveCount = groupedOrders.pending.length + groupedOrders.preparing.length + groupedOrders.ready.length;
 
-  if (allActiveCount === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400">
-        <div className="mb-4 opacity-5">
-          <Icons.ChefHat />
-        </div>
-        <p className="text-sm font-black uppercase tracking-widest">Sin Órdenes en Cocina</p>
-      </div>
+  const completedToday = useMemo(() => {
+    const today = new Date().toDateString();
+    return orders.filter(o => 
+      (o.status === 'delivered' || o.status === 'cancelled') &&
+      new Date(o.date).toDateString() === today
     );
-  }
+  }, [orders]);
 
   return (
-    <div className="p-4 h-full overflow-hidden">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full items-start overflow-x-auto pb-4">
-        
-        {/* PENDING COLUMN */}
-        <div className="bg-slate-50/50 rounded-[2.5rem] p-4 border-2 border-dashed border-slate-200 min-h-[600px] flex flex-col min-w-[320px]">
-          <div className="flex items-center justify-between mb-6 px-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-slate-200 rounded-xl flex items-center justify-center text-slate-600">
-                <Icons.History />
-              </div>
-              <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-500">Pendientes</h3>
-            </div>
-            <span className="bg-slate-200 text-slate-600 text-[10px] font-black px-3 py-1 rounded-full">
-              {groupedOrders.pending.length}
-            </span>
-          </div>
-          <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] pr-2 scrollbar-hide">
-            {groupedOrders.pending.map(renderOrderCard)}
-            {groupedOrders.pending.length === 0 && (
-              <div className="text-center py-12 text-slate-300">
-                <p className="text-[10px] font-black uppercase tracking-widest text-balance">No hay pedidos en cola</p>
-              </div>
-            )}
-          </div>
+    <div className="p-4 h-full flex flex-col overflow-hidden">
+      {/* Header bar */}
+      <div className="flex items-center justify-between pb-3 mb-2 border-b border-slate-200 shrink-0">
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-black uppercase tracking-widest text-slate-500">Comandas en Cocina</span>
+          <span className="bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">{allActiveCount}</span>
         </div>
-
-        {/* PREPARING COLUMN */}
-        <div className="bg-amber-50/30 rounded-[2.5rem] p-4 border-2 border-dashed border-amber-200 min-h-[600px] flex flex-col min-w-[320px]">
-          <div className="flex items-center justify-between mb-6 px-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-amber-500 rounded-xl flex items-center justify-center text-white shadow-lg animate-pulse">
-                <Icons.ChefHat />
-              </div>
-              <h3 className="font-black text-xs uppercase tracking-[0.2em] text-amber-600">Preparando</h3>
-            </div>
-            <span className="bg-amber-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg shadow-amber-200">
-              {groupedOrders.preparing.length}
-            </span>
-          </div>
-          <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] pr-2 scrollbar-hide">
-            {groupedOrders.preparing.map(renderOrderCard)}
-            {groupedOrders.preparing.length === 0 && (
-              <div className="text-center py-12 text-amber-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-balance">Cocina sin pedidos</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* READY COLUMN */}
-        <div className="bg-green-50/30 rounded-[2.5rem] p-4 border-2 border-dashed border-green-200 min-h-[600px] flex flex-col min-w-[320px]">
-          <div className="flex items-center justify-between mb-6 px-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-green-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-                <Icons.CheckCircle />
-              </div>
-              <h3 className="font-black text-xs uppercase tracking-[0.2em] text-green-700">Listos</h3>
-            </div>
-            <span className="bg-green-600 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg shadow-green-200">
-              {groupedOrders.ready.length}
-            </span>
-          </div>
-          <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] pr-2 scrollbar-hide">
-            {groupedOrders.ready.map(renderOrderCard)}
-            {groupedOrders.ready.length === 0 && (
-              <div className="text-center py-12 text-green-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-balance">Esperando despacho</p>
-              </div>
-            )}
-          </div>
-        </div>
-
+        {onReopenOrder && (
+          <button 
+            onClick={() => setShowHistoryModal(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-black uppercase tracking-wider transition shadow-sm border border-slate-200"
+          >
+            <Icons.History size={14} />
+            <span>Despachados Hoy ({completedToday.length})</span>
+          </button>
+        )}
       </div>
+
+      {allActiveCount === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-grow text-slate-400">
+          <div className="mb-4 opacity-10">
+            <Icons.ChefHat size={48} />
+          </div>
+          <p className="text-sm font-black uppercase tracking-widest">Sin Órdenes Activas en Cocina</p>
+          {completedToday.length > 0 && onReopenOrder && (
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="mt-4 px-4 py-2 bg-black text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition"
+            >
+              Ver Órdenes Despachadas Hoy ({completedToday.length})
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-grow items-start overflow-x-auto pb-4">
+          
+          {/* PENDING COLUMN */}
+          <div className="bg-slate-50/50 rounded-[2.5rem] p-4 border-2 border-dashed border-slate-200 min-h-[600px] flex flex-col min-w-[320px]">
+            <div className="flex items-center justify-between mb-6 px-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-slate-200 rounded-xl flex items-center justify-center text-slate-600">
+                  <Icons.History />
+                </div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-500">Pendientes</h3>
+              </div>
+              <span className="bg-slate-200 text-slate-600 text-[10px] font-black px-3 py-1 rounded-full">
+                {groupedOrders.pending.length}
+              </span>
+            </div>
+            <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] pr-2 scrollbar-hide">
+              {groupedOrders.pending.map(renderOrderCard)}
+              {groupedOrders.pending.length === 0 && (
+                <div className="text-center py-12 text-slate-300">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-balance">No hay pedidos en cola</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* PREPARING COLUMN */}
+          <div className="bg-amber-50/30 rounded-[2.5rem] p-4 border-2 border-dashed border-amber-200 min-h-[600px] flex flex-col min-w-[320px]">
+            <div className="flex items-center justify-between mb-6 px-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-amber-500 rounded-xl flex items-center justify-center text-white shadow-lg animate-pulse">
+                  <Icons.ChefHat />
+                </div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-amber-600">Preparando</h3>
+              </div>
+              <span className="bg-amber-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg shadow-amber-200">
+                {groupedOrders.preparing.length}
+              </span>
+            </div>
+            <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] pr-2 scrollbar-hide">
+              {groupedOrders.preparing.map(renderOrderCard)}
+              {groupedOrders.preparing.length === 0 && (
+                <div className="text-center py-12 text-amber-200">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-balance">Cocina sin pedidos</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* READY COLUMN */}
+          <div className="bg-green-50/30 rounded-[2.5rem] p-4 border-2 border-dashed border-green-200 min-h-[600px] flex flex-col min-w-[320px]">
+            <div className="flex items-center justify-between mb-6 px-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-green-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+                  <Icons.CheckCircle />
+                </div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-green-700">Listos</h3>
+              </div>
+              <span className="bg-green-600 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg shadow-green-200">
+                {groupedOrders.ready.length}
+              </span>
+            </div>
+            <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] pr-2 scrollbar-hide">
+              {groupedOrders.ready.map(renderOrderCard)}
+              {groupedOrders.ready.length === 0 && (
+                <div className="text-center py-12 text-green-200">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-balance">Esperando despacho</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* Modal Despachados / Reabrir */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-base font-black uppercase tracking-tight text-slate-900">Órdenes Despachadas Hoy</h3>
+                <p className="text-xs text-slate-500 font-medium">Reabre comandas en cocina si se cerraron accidentalmente</p>
+              </div>
+              <button 
+                onClick={() => setShowHistoryModal(false)}
+                className="p-2 rounded-xl bg-slate-200 text-slate-600 hover:bg-black hover:text-white transition"
+              >
+                <Icons.X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto space-y-3 flex-grow">
+              {completedToday.length === 0 ? (
+                <p className="text-center py-10 text-slate-400 font-bold text-sm">No hay órdenes despachadas hoy.</p>
+              ) : (
+                completedToday.map(ord => (
+                  <div key={ord.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-black text-sm text-slate-900">#{ord.orderNumber || ord.id.slice(-4)}</span>
+                        <span className="text-xs font-bold text-slate-600 uppercase">
+                          {ord.type === 'dine-in' ? `Mesa ${ord.table}` : ord.takeawayType || 'Mostrador'}
+                        </span>
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${
+                          ord.status === 'delivered' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {ord.status === 'delivered' ? 'Despachado' : ord.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        {ord.client} • {new Date(ord.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ${ord.total.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
+                        {ord.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <button 
+                        onClick={() => printThermalTicketHTML(ord, settings || restaurantName)}
+                        title="Imprimir Ticket"
+                        className="p-2 bg-white text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-100 transition shadow-sm text-xs font-bold"
+                      >
+                        <Icons.Printer size={16} />
+                      </button>
+                      {onReopenOrder && (
+                        <button
+                          onClick={() => {
+                            onReopenOrder(ord.id);
+                            setShowHistoryModal(false);
+                          }}
+                          className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition shadow-md flex items-center space-x-1.5"
+                        >
+                          <Icons.RotateCcw size={14} />
+                          <span>Reabrir en Cocina</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 text-right">
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="px-5 py-2.5 bg-black text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmationModal 
         isOpen={confirmState.isOpen}
         onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}

@@ -780,13 +780,13 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                         )}
                         <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end space-x-4">
                            <button 
-                            onClick={(e) => { e.stopPropagation(); printThermalTicketHTML(order, restaurantName); }}
+                            onClick={(e) => { e.stopPropagation(); printThermalTicketHTML(order, settings || restaurantName); }}
                             className="text-[10px] font-black uppercase tracking-widest flex items-center space-x-2 px-6 py-3 bg-white border-2 border-slate-200 rounded-xl hover:bg-black hover:text-white hover:border-black transition-all"
                           >
                             <Icons.Printer /> <span>Imprimir</span>
                           </button>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); generateTicketPDF(order, restaurantName); }}
+                            onClick={(e) => { e.stopPropagation(); generateTicketPDF(order, settings || restaurantName); }}
                             className="text-[10px] font-black uppercase tracking-widest flex items-center space-x-2 px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 shadow-xl shadow-red-100 transition-all active:scale-95"
                           >
                             <Icons.FileText /> <span>Bajar Ticket</span>

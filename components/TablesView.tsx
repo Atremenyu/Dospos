@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Table, Order, PaymentMethod, CartItem, User, UserRole } from '../types';
+import { Table, Order, PaymentMethod, CartItem, User, UserRole, StoreSettings } from '../types';
 import { Icons } from '../constants';
 import { generateTicketPDF } from '../services/pdfGenerator';
 import { printThermalTicketHTML } from '../services/thermalPrinter';
+import { storage } from '../services/storage';
 import ConfirmationModal from './ConfirmationModal';
 import { getQuickCashOptions } from '../utils/paymentUtils';
 
@@ -12,17 +13,18 @@ interface TablesViewProps {
   tables: Table[];
   orders: Order[];
   onSelectTable: (tableId: string) => void;
-  onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number) => void;
+  onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number, cashReceived?: number) => void;
   onSplitOrder: (id: string, splitQuantities: Record<number, number>, payment: PaymentMethod, tip?: number) => void;
   onCancel: (id: string) => void;
   onDeliver: (id: string) => void;
   restaurantName: string;
+  settings?: StoreSettings;
   users: User[];
   roles: UserRole[];
 }
 
 const TablesView: React.FC<TablesViewProps> = ({ 
-  tables, orders, onSelectTable, onPay, onSplitOrder, onCancel, onDeliver, restaurantName, users, roles
+  tables, orders, onSelectTable, onPay, onSplitOrder, onCancel, onDeliver, restaurantName, settings, users, roles
 }) => {
   const [managingTableId, setManagingTableId] = useState<string | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod | null>(null);
@@ -344,6 +346,16 @@ const TablesView: React.FC<TablesViewProps> = ({
                   </div>
                 )}
 
+                {managingOrder.discountAmount && managingOrder.discountAmount > 0 && !isSplitMode && (
+                  <div className="px-4 py-2 bg-green-50 border border-green-200 rounded-xl mt-3 flex justify-between items-center text-xs font-black uppercase text-green-800">
+                    <span className="flex items-center space-x-1">
+                      <Icons.Tag size={12} className="shrink-0" />
+                      <span>Desc ({managingOrder.discountReason || 'Promo'}):</span>
+                    </span>
+                    <span>-${managingOrder.discountAmount.toLocaleString()}</span>
+                  </div>
+                )}
+
                 <div className={`flex justify-between items-center px-4 py-4 rounded-2xl mt-4 transition-colors ${isSplitMode ? 'bg-red-600 text-white shadow-xl shadow-red-100' : 'bg-black text-white'}`}>
                     <span className="text-xs font-black uppercase tracking-widest opacity-60">
                       {isSplitMode 
@@ -368,14 +380,22 @@ const TablesView: React.FC<TablesViewProps> = ({
                        <span className="text-[8px] font-black uppercase tracking-wider text-center leading-tight">Añadir Items</span>
                      </button>
                      <button 
-                      onClick={() => printThermalTicketHTML(managingOrder, restaurantName)}
+                      onClick={() => {
+                        managingOrder.preticketPrintedAt = new Date().toISOString();
+                        const activeSettings = { ...storage.getSettings(), ...(settings || {}) };
+                        printThermalTicketHTML(managingOrder, activeSettings, { isPreticket: true });
+                      }}
                       className="flex flex-col items-center justify-center p-3 bg-slate-100 text-slate-800 rounded-3xl hover:bg-slate-200 transition-all active:scale-95 space-y-1.5 border-b-4 border-slate-300"
                      >
                        <Icons.Printer size={18} />
                        <span className="text-[8px] font-black uppercase tracking-wider text-center leading-tight">Pre-cuenta Térmica</span>
                      </button>
                      <button 
-                      onClick={() => generateTicketPDF(managingOrder, restaurantName)}
+                      onClick={() => {
+                        managingOrder.preticketPrintedAt = new Date().toISOString();
+                        const activeSettings = { ...storage.getSettings(), ...(settings || {}) };
+                        generateTicketPDF(managingOrder, activeSettings, { isPreticket: true });
+                      }}
                       className="flex flex-col items-center justify-center p-3 bg-white border-2 border-slate-200 text-slate-600 rounded-3xl hover:border-red-600 hover:text-red-600 transition-all active:scale-95 space-y-1.5"
                      >
                        <Icons.FileText size={18} />
@@ -553,14 +573,14 @@ const TablesView: React.FC<TablesViewProps> = ({
                             handleConfirmSplit(tip);
                           } else {
                             // Equal split
-                            onPay(managingOrder.id, selectedPayment, tip, amountToPay);
+                            onPay(managingOrder.id, selectedPayment, tip, amountToPay, selectedPayment === 'Efectivo' ? parseFloat(cashReceived) : undefined);
                             setManagingTableId(null);
                             setTipAmount('');
                             setNumPeople(2);
                             setAuthorizedBy(null);
                           }
                         } else {
-                          onPay(managingOrder.id, selectedPayment, tip);
+                          onPay(managingOrder.id, selectedPayment, tip, undefined, selectedPayment === 'Efectivo' ? parseFloat(cashReceived) : undefined);
                           setManagingTableId(null);
                           setTipAmount('');
                           setAuthorizedBy(null);

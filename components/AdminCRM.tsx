@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
 import { Icons } from '../constants';
-import { Product, Table, Order, CashShift, User, UserRole, Shift, StoreSettings, AdminTabType, Ingredient } from '../types';
+import { Product, Table, Order, CashShift, User, UserRole, Shift, StoreSettings, AdminTabType, Ingredient, Promotion } from '../types';
 import ProductManagement from './ProductManagement';
 import HistoryView from './HistoryView';
 import CashShiftView from './CashShiftView';
+import PromotionsManager from './PromotionsManager';
 
 interface AdminCRMProps {
   products: Product[];
@@ -30,6 +31,8 @@ interface AdminCRMProps {
   onCloseCashShift: () => void;
   ingredients: Ingredient[];
   setIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>>;
+  promotions: Promotion[];
+  onUpdatePromotions: (promotions: Promotion[]) => void;
 }
 
 const AdminCRM: React.FC<AdminCRMProps> = ({
@@ -55,7 +58,9 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
   onFactoryReset,
   onCloseCashShift,
   ingredients,
-  setIngredients
+  setIngredients,
+  promotions,
+  onUpdatePromotions
 }) => {
 
   // Integrated ProductManagement wrapper or just pass the props
@@ -241,6 +246,18 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
           </div>
         );
 
+      case 'promotions':
+        return (
+          <div className="h-full animate-in fade-in slide-in-from-right-4 duration-500">
+            <PromotionsManager
+              promotions={promotions}
+              onUpdatePromotions={onUpdatePromotions}
+              products={products}
+              categories={categories}
+            />
+          </div>
+        );
+
       default:
         return null;
     }
@@ -260,6 +277,7 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
             { id: 'overview', label: 'Dashboard', icon: <Icons.Activity size={18} /> },
             { id: 'history', label: 'Ventas', icon: <Icons.TrendingUp size={18} /> },
             { id: 'cash', label: 'Cierres de Caja', icon: <Icons.Lock size={18} /> },
+            { id: 'promotions', label: 'Promociones', icon: <Icons.Tag size={18} /> },
             { id: 'inventory', label: 'Inventario', icon: <Icons.Layers size={18} /> },
             { id: 'products', label: 'Productos', icon: <Icons.Package size={18} /> },
             { id: 'categories', label: 'Categorías', icon: <Icons.Tag size={18} /> },

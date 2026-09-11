@@ -1,4 +1,11 @@
-import { Product, Order, Category, Table, User, Shift, CashShift, UserRole, StoreSettings, Ingredient } from '../types';
+import { Product, Order, Category, Table, User, Shift, CashShift, UserRole, StoreSettings, Ingredient, Promotion } from '../types';
+
+export function generateSecureId(prefix = 'ord'): string {
+  const timestamp = Date.now();
+  const rand1 = Math.random().toString(36).substring(2, 8);
+  const rand2 = Math.random().toString(36).substring(2, 6);
+  return `${prefix}_${timestamp}_${rand1}${rand2}`;
+}
 
 const KEYS = {
   PRODUCTS: 'dospos_productos',
@@ -13,6 +20,7 @@ const KEYS = {
   CASH_SHIFTS: 'dospos_turnos_caja',
   ROLES: 'dospos_roles',
   INGREDIENTS: 'dospos_ingredientes',
+  PROMOTIONS: 'dospos_promociones',
 };
 
 const API_MAP: Record<string, string> = {
@@ -26,6 +34,7 @@ const API_MAP: Record<string, string> = {
   [KEYS.CASH_SHIFTS]: 'cashShifts',
   [KEYS.ROLES]: 'roles',
   [KEYS.INGREDIENTS]: 'ingredients',
+  [KEYS.PROMOTIONS]: 'promotions',
   [KEYS.RESTAURANT_NAME]: 'restaurantName',
   [KEYS.EVENT_TYPE]: 'eventType',
 };
@@ -77,17 +86,57 @@ export const storage = {
     lastKnownServerState[key] = JSON.stringify(data);
   },
   getSettings: (): StoreSettings => {
+    const rawRestName = localStorage.getItem(KEYS.RESTAURANT_NAME);
+    const initialName = (!rawRestName || rawRestName === 'COTORRITOS BARRIO ANTIGUO' || rawRestName === 'DosPOS')
+      ? 'DOS RODRIGUEZ'
+      : rawRestName;
+
+    const defaultSettings: StoreSettings = {
+      name: initialName,
+      eventType: localStorage.getItem(KEYS.EVENT_TYPE) || 'Restaurante',
+      address: 'Mariano Escobedo 728-Norte, Centro',
+      addressLine2: '64000 Monterrey, N.L.',
+      phone: '81 3128 3197',
+      currency: 'MXN',
+      currencyText: 'PESOS',
+      taxRate: 16,
+      includeTaxBreakdown: true,
+      terminalName: '1 -- SERVER1',
+      defaultDiners: 1,
+      showTicketAddress: true,
+      showTicketPhone: true,
+      showTicketTaxId: true,
+      showTicketHeaderMsg: true,
+      showTicketDate: true,
+      showTicketOrderNum: true,
+      showTicketTable: true,
+      showTicketWaiter: true,
+      showTicketTimes: true,
+      showTicketDeliveryAddress: true,
+      showTicketTotalArticles: true,
+      showTicketSubtotal: true,
+      showTicketTax: true,
+      showTicketAmountInWords: true,
+      showTicketPaymentDetails: true,
+      showTicketTerminal: true,
+      showTicketFooterMsg: true,
+    };
     const data = localStorage.getItem(KEYS.SETTINGS);
     if (data) {
-      return JSON.parse(data);
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.name === 'COTORRITOS BARRIO ANTIGUO' || parsed.name === 'DosPOS' || !parsed.name) {
+          parsed.name = 'DOS RODRIGUEZ';
+          parsed.address = 'Mariano Escobedo 728-Norte, Centro';
+          parsed.addressLine2 = '64000 Monterrey, N.L.';
+          parsed.phone = '81 3128 3197';
+        }
+        return { ...defaultSettings, ...parsed };
+      } catch (e) {
+        return defaultSettings;
+      }
     }
-    // Fallback for backwards compatibility
-    return {
-      name: localStorage.getItem(KEYS.RESTAURANT_NAME) || 'DosPOS',
-      eventType: localStorage.getItem(KEYS.EVENT_TYPE) || 'Restaurante',
-      currency: 'MXN',
-      taxRate: 0,
-    };
+    return defaultSettings;
   },
   saveSettings: (settings: StoreSettings) => {
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
@@ -162,7 +211,11 @@ export const storage = {
     saveToServer(KEYS.CASH_SHIFTS, shifts);
   },
   getRestaurantName: (): string => {
-    return localStorage.getItem(KEYS.RESTAURANT_NAME) || 'DosPOS';
+    const raw = localStorage.getItem(KEYS.RESTAURANT_NAME);
+    if (!raw || raw === 'DosPOS' || raw === 'COTORRITOS BARRIO ANTIGUO') {
+      return 'DOS RODRIGUEZ';
+    }
+    return raw;
   },
   saveRestaurantName: (name: string) => {
     localStorage.setItem(KEYS.RESTAURANT_NAME, name);
@@ -182,6 +235,14 @@ export const storage = {
   saveIngredients: (ingredients: Ingredient[]) => {
     localStorage.setItem(KEYS.INGREDIENTS, JSON.stringify(ingredients));
     saveToServer(KEYS.INGREDIENTS, ingredients);
+  },
+  getPromotions: (): Promotion[] => {
+    const data = localStorage.getItem(KEYS.PROMOTIONS);
+    return data ? JSON.parse(data) : [];
+  },
+  savePromotions: (promotions: Promotion[]) => {
+    localStorage.setItem(KEYS.PROMOTIONS, JSON.stringify(promotions));
+    saveToServer(KEYS.PROMOTIONS, promotions);
   },
   saveBulk: async (data: Record<string, any>) => {
     lastWriteTime = Date.now();

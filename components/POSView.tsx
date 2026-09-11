@@ -1,11 +1,12 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption, User, UserRole } from '../types';
+import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption, User, UserRole, Promotion } from '../types';
 import { Icons } from '../constants';
 import ModifierModal from './ModifierModal';
 import ComboModal from './ComboModal';
 import { getQuickCashOptions } from '../utils/paymentUtils';
+import { isPromotionActiveNow, calculateOrderPromotionDiscount, getProductActivePromo } from '../utils/promotionsEngine';
 
 interface POSViewProps {
   products: Product[];
@@ -17,7 +18,20 @@ interface POSViewProps {
   onAddToCart: (p: Product, mods?: SelectedModifier[], note?: string, isCombo?: boolean, comboOpts?: ComboOption[]) => void;
   onUpdateQuantity: (id: string, delta: number) => void;
   onUpdateNote: (id: string, note: string) => void;
-  onCheckout: (client: string, table: string, payment: PaymentMethod, type: OrderType, takeawayType?: TakeawayType, tip?: number, payLater?: boolean, address?: string) => void;
+  onCheckout: (
+    client: string, 
+    table: string, 
+    payment: PaymentMethod, 
+    type: OrderType, 
+    takeawayType?: TakeawayType, 
+    tip?: number, 
+    payLater?: boolean, 
+    address?: string,
+    cashReceived?: number,
+    discountAmount?: number,
+    discountReason?: string,
+    appliedPromotionId?: string
+  ) => void;
   onDeliver: (id: string) => void;
   onUpdateItemStatus: (orderId: string, itemIdx: number, status: any) => void;
   onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number) => void;
@@ -28,12 +42,15 @@ interface POSViewProps {
   onCloseShift: () => void;
   users: User[];
   roles: UserRole[];
+  promotions?: Promotion[];
+  isSubmitting?: boolean;
 }
 
 const POSView: React.FC<POSViewProps> = ({ 
   products, categories, cart, orders, tables, initialTableId,
   onAddToCart, onUpdateQuantity, onUpdateNote, onCheckout, onDeliver, onUpdateItemStatus, onPay, onCancel,
-  onToggleOrders, hasOpenCashShift, onOpenShift, onCloseShift, users, roles
+  onToggleOrders, hasOpenCashShift, onOpenShift, onCloseShift, users, roles,
+  promotions = [], isSubmitting = false
 }) => {
   const [activeCategory, setActiveCategory] = useState<Category | 'Todos'>('Todos');
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,6 +73,8 @@ const POSView: React.FC<POSViewProps> = ({
   const [pendingComboProduct, setPendingComboProduct] = useState<Product | null>(null);
   const [selectedIsComboForModifier, setSelectedIsComboForModifier] = useState<boolean>(false);
   const [pendingComboOptionsForModifier, setPendingComboOptionsForModifier] = useState<ComboOption[]>([]);
+  const [selectedPromoId, setSelectedPromoId] = useState<string | null | 'none'>(null);
+  const [isSubmittingLocal, setIsSubmittingLocal] = useState<boolean>(false);
 
   const checkoutContainerRef = useRef<HTMLDivElement>(null);
 
@@ -144,16 +163,66 @@ const POSView: React.FC<POSViewProps> = ({
     return result;
   }, [products, activeCategory, searchTerm]);
 
-  const total = useMemo(() => 
+  const activePromotions = useMemo(() => {
+    if (!promotions || promotions.length === 0) return [];
+    return promotions.filter(p => isPromotionActiveNow(p));
+  }, [promotions]);
+
+  // Find promotion that gives the highest discount automatically for the current cart
+  const bestAutoPromo = useMemo(() => {
+    if (cart.length === 0 || activePromotions.length === 0) return null;
+    let best: Promotion | null = null;
+    let maxDiscount = 0;
+
+    for (const p of activePromotions) {
+      const calc = calculateOrderPromotionDiscount(cart, p);
+      if (calc.eligible && calc.discountAmount > maxDiscount) {
+        maxDiscount = calc.discountAmount;
+        best = p;
+      }
+    }
+    return best;
+  }, [cart, activePromotions]);
+
+  // Active promotion to apply: manual choice, explicit 'none', or best auto promo
+  const currentPromotion = useMemo(() => {
+    if (selectedPromoId === 'none') return null;
+    if (selectedPromoId) {
+      return promotions.find(p => p.id === selectedPromoId) || null;
+    }
+    return bestAutoPromo;
+  }, [selectedPromoId, promotions, bestAutoPromo]);
+
+  const promoCalcResult = useMemo(() => {
+    if (!currentPromotion || cart.length === 0) {
+      return { discountAmount: 0, description: '', eligible: false, message: '' };
+    }
+    return calculateOrderPromotionDiscount(cart, currentPromotion);
+  }, [cart, currentPromotion]);
+
+  const rawSubtotal = useMemo(() => 
     cart.reduce((acc, item) => acc + (item.price * item.quantity), 0), 
   [cart]);
 
+  const effectiveDiscount = promoCalcResult.eligible 
+    ? Math.min(rawSubtotal, promoCalcResult.discountAmount) 
+    : 0;
+  const total = Math.max(0, rawSubtotal - effectiveDiscount);
+
   const existingOrder = useMemo(() => {
     if (orderType !== 'dine-in' || !table.trim()) return null;
-    return orders.find(o => o.table === table && o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled');
+    const tableLower = table.trim().toLowerCase();
+    return orders.find(o => o.table && o.table.trim().toLowerCase() === tableLower && o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled');
   }, [orders, table, orderType]);
 
   const handleCheckoutSubmit = () => {
+    if (isSubmitting || isSubmittingLocal) return;
+
+    if (orderType === 'dine-in' && !table.trim()) {
+      alert('Por favor ingrese el número o nombre de la mesa.');
+      return;
+    }
+
     // Basic validation for cash payments in POSView
     const tip = parseFloat(tipAmount) || 0;
     if (payment === 'Efectivo' && orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && !payLater) {
@@ -166,19 +235,175 @@ const POSView: React.FC<POSViewProps> = ({
       }
     }
     
-    onCheckout(client, table, payment, orderType, orderType === 'takeaway' ? takeawayType : undefined, tip, payLater, orderType === 'takeaway' && takeawayType === 'delivery' ? address : undefined);
-    setClient('');
-    setAddress('');
-    setTable('');
-    setTipAmount('');
-    setPayment('Efectivo');
-    setOrderType('dine-in');
-    setTakeawayType('local');
-    setShowCheckout(false);
-    setCashReceived('');
-    setPayLater(false);
-    setAuthorizedBy(null);
+    setIsSubmittingLocal(true);
+
+    try {
+      const parsedCashReceived = payment === 'Efectivo' && cashReceived ? parseFloat(cashReceived) : undefined;
+      onCheckout(
+        client, 
+        table, 
+        payment, 
+        orderType, 
+        orderType === 'takeaway' ? takeawayType : undefined, 
+        tip, 
+        payLater, 
+        orderType === 'takeaway' && takeawayType === 'delivery' ? address : undefined,
+        parsedCashReceived,
+        effectiveDiscount > 0 ? effectiveDiscount : undefined,
+        effectiveDiscount > 0 && currentPromotion ? currentPromotion.name : undefined,
+        effectiveDiscount > 0 && currentPromotion ? currentPromotion.id : undefined
+      );
+
+      setClient('');
+      setAddress('');
+      setTable('');
+      setTipAmount('');
+      setPayment('Efectivo');
+      setOrderType('dine-in');
+      setTakeawayType('local');
+      setShowCheckout(false);
+      setCashReceived('');
+      setPayLater(false);
+      setAuthorizedBy(null);
+      setSelectedPromoId(null);
+    } finally {
+      setTimeout(() => {
+        setIsSubmittingLocal(false);
+      }, 800);
+    }
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. PIN modal for courtesy authorization
+      if (showPinModal) {
+        if (/^[0-9]$/.test(e.key)) {
+          e.preventDefault();
+          if (enteredPin.length < 4) {
+            const next = enteredPin + e.key;
+            setEnteredPin(next);
+            setPinError(null);
+            if (next.length === 4) {
+              const foundUser = users.find(u => u.pin === next);
+              if (!foundUser) {
+                setPinError('PIN Incorrecto');
+                return;
+              }
+              const userRoleObj = roles.find(r => r.name === foundUser.role);
+              const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+              if (canAuth) {
+                setAuthorizedBy(foundUser.name);
+                setPayment('Cortesía');
+                setShowPinModal(false);
+                setEnteredPin('');
+                setPinError(null);
+              } else {
+                setPinError('No autorizado para cortesías');
+              }
+            }
+          }
+        } else if (e.key === 'Backspace') {
+          e.preventDefault();
+          setEnteredPin(prev => prev.slice(0, -1));
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setShowPinModal(false);
+          setEnteredPin('');
+          setPinError(null);
+        } else if (e.key.toLowerCase() === 'c' || e.key === 'Delete') {
+          e.preventDefault();
+          setEnteredPin('');
+          setPinError(null);
+        }
+        return;
+      }
+
+      // Do not conflict if ComboModal or ModifierModal are open
+      if (pendingComboProduct || pendingModifierProduct) {
+        return;
+      }
+
+      const activeEl = document.activeElement;
+      const isInputActive = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+      const isTextArea = activeEl && activeEl.tagName === 'TEXTAREA';
+
+      // 2. In Checkout View
+      if (showCheckout) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setShowCheckout(false);
+          return;
+        }
+
+        // Enter submits the order if not in a multi-line textarea
+        if (e.key === 'Enter' && !isTextArea) {
+          e.preventDefault();
+          const canSubmit = !((orderType === 'dine-in' && !table.trim()) || isSubmitting || isSubmittingLocal);
+          if (canSubmit) {
+            handleCheckoutSubmit();
+          }
+          return;
+        }
+
+        // Numeric / Function shortcuts when not typing in text fields
+        if (!isInputActive) {
+          if (e.key === '1' || e.key === 'F1' || (e.altKey && e.key === '1')) {
+            e.preventDefault();
+            setPayment('Efectivo');
+          } else if (e.key === '2' || e.key === 'F2' || (e.altKey && e.key === '2')) {
+            e.preventDefault();
+            setPayment('Tarjeta');
+          } else if (e.key === '3' || e.key === 'F3' || (e.altKey && e.key === '3')) {
+            e.preventDefault();
+            setPayment('Transferencia');
+          } else if (e.key === '4' || e.key === 'F4' || (e.altKey && e.key === '4')) {
+            e.preventDefault();
+            setShowPinModal(true);
+          } else if (e.key === 'F8' || (e.altKey && e.key.toLowerCase() === 'd')) {
+            e.preventDefault();
+            setPayLater(prev => !prev);
+          } else if (e.altKey && e.key.toLowerCase() === 'm') {
+            e.preventDefault();
+            setOrderType('dine-in');
+          } else if (e.altKey && e.key.toLowerCase() === 'l') {
+            e.preventDefault();
+            setOrderType('takeaway');
+          }
+        }
+        return;
+      }
+
+      // 3. Regular POS Catalog & Cart view
+      // Toggle Active Orders slider: F10 or Alt+P
+      if (e.key === 'F10' || (e.altKey && e.key.toLowerCase() === 'p')) {
+        e.preventDefault();
+        onToggleOrders();
+        return;
+      }
+
+      // Open checkout when cart has items: F9 or Enter (if not focused on an input)
+      if (cart.length > 0) {
+        if (e.key === 'F9' || (e.key === 'Enter' && !isInputActive)) {
+          e.preventDefault();
+          setShowCheckout(true);
+          return;
+        }
+      }
+
+      // Clear search with Escape
+      if (e.key === 'Escape' && searchTerm) {
+        e.preventDefault();
+        setSearchTerm('');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    showPinModal, enteredPin, users, roles, pendingComboProduct, pendingModifierProduct,
+    showCheckout, orderType, table, isSubmitting, isSubmittingLocal, cart.length,
+    searchTerm, handleCheckoutSubmit, onToggleOrders
+  ]);
 
   const hasReadyOrders = useMemo(() => orders.some(o => o.status === 'ready'), [orders]);
 
@@ -208,6 +433,7 @@ const POSView: React.FC<POSViewProps> = ({
             )}
           </div>
 
+
           <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide touch-pan-x -mx-4 px-4 sm:mx-0 sm:px-0">
             {displayCategories.map(cat => (
               <button
@@ -226,26 +452,65 @@ const POSView: React.FC<POSViewProps> = ({
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 pb-20 md:pb-0">
-          {filteredProducts.map(product => (
-            <button
-              key={product.id}
-              disabled={showCheckout}
-              onClick={() => handleProductClick(product)}
-              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-red-600 transition-all text-left flex flex-col justify-between active:scale-95 group"
-            >
-              <div>
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-black text-white mb-3 inline-block">
-                  {product.category}
-                </span>
-                <h3 className="font-bold text-slate-900 leading-tight group-hover:text-red-600 transition-colors text-base">
-                  {product.name}
-                </h3>
-              </div>
-              <p className="mt-4 text-xl font-black text-black">
-                ${product.price.toLocaleString()}
-              </p>
-            </button>
-          ))}
+          {filteredProducts.map(product => {
+            const promoInfo = getProductActivePromo(product, activePromotions);
+            return (
+              <button
+                key={product.id}
+                disabled={showCheckout}
+                onClick={() => handleProductClick(product)}
+                className={`bg-white p-5 rounded-2xl border transition-all text-left flex flex-col justify-between active:scale-95 group relative overflow-hidden ${
+                  promoInfo 
+                    ? 'border-red-400 ring-2 ring-red-500/20 shadow-md hover:border-red-600 bg-gradient-to-b from-red-50/20 to-white' 
+                    : 'border-slate-200 shadow-sm hover:shadow-xl hover:border-red-600'
+                }`}
+              >
+                {promoInfo && (
+                  <div className="absolute top-0 right-0 bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-bl-xl shadow-sm flex items-center space-x-1">
+                    <Icons.Tag size={10} />
+                    <span>{promoInfo.discountLabel}</span>
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center space-x-1.5 mb-2.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-black text-white inline-block">
+                      {product.category}
+                    </span>
+                    {promoInfo && (
+                      <span className="text-[8px] font-black uppercase tracking-wider text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                        ★ Promo Hoy
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-bold text-slate-900 leading-tight group-hover:text-red-600 transition-colors text-base">
+                    {product.name}
+                  </h3>
+                  {promoInfo && (
+                    <p className="text-[10px] font-bold text-red-600 mt-1 line-clamp-1">
+                      {promoInfo.promo.name}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  {promoInfo && promoInfo.promoPrice !== null ? (
+                    <div className="flex items-baseline space-x-2">
+                      <span className="text-xl font-black text-red-600">
+                        ${promoInfo.promoPrice.toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-slate-400 line-through">
+                        ${product.price.toLocaleString()}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-xl font-black text-black">
+                      ${product.price.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -367,8 +632,10 @@ const POSView: React.FC<POSViewProps> = ({
                   e.stopPropagation();
                   setShowCheckout(false);
                 }}
-                className="text-slate-400 hover:text-red-600 p-1 transition"
+                className="text-slate-400 hover:text-red-600 p-1 transition flex items-center space-x-1"
+                title="Volver al carrito (Esc)"
               >
+                <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">Esc</span>
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>
             )}
@@ -624,7 +891,7 @@ const POSView: React.FC<POSViewProps> = ({
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Forma de Pago</h4>
                       <div className="grid grid-cols-1 gap-2">
-                        {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map(method => {
+                        {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map((method, mIdx) => {
                           const isSelected = payment === method;
                           const isCash = method === 'Efectivo';
                           
@@ -657,7 +924,14 @@ const POSView: React.FC<POSViewProps> = ({
                                     {method === 'Cortesía' && <Icons.Gift size={18} />}
                                   </div>
                                   <div className="text-left">
-                                    <span className="font-black text-xs uppercase tracking-tight block">{method}</span>
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-black text-xs uppercase tracking-tight block">{method}</span>
+                                      <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                                        isSelected ? 'bg-red-200 text-red-800' : 'bg-slate-100 text-slate-400'
+                                      }`}>
+                                        [{mIdx + 1}]
+                                      </span>
+                                    </div>
                                     {method === 'Cortesía' && authorizedBy && (
                                       <span className="text-[8px] font-bold text-green-600 uppercase tracking-tight block">Autorizado por: {authorizedBy}</span>
                                     )}
@@ -694,6 +968,15 @@ const POSView: React.FC<POSViewProps> = ({
                                               setCashReceived(val);
                                             }
                                           }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              handleCheckoutSubmit();
+                                            } else if (e.key === 'Escape') {
+                                              e.preventDefault();
+                                              setShowCheckout(false);
+                                            }
+                                          }}
                                         />
                                       </div>
                                     </div>
@@ -725,6 +1008,86 @@ const POSView: React.FC<POSViewProps> = ({
                         })}
                       </div>
                       
+                      {/* Selector de Promoción o Descuento */}
+                      <div className="pt-4 border-t border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center space-x-1.5">
+                            <Icons.Tag className="text-red-600" />
+                            <span>Promoción / Cupón</span>
+                          </label>
+                          {currentPromotion && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPromoId('none')}
+                              className="text-[9px] font-black text-red-600 hover:underline uppercase tracking-tight"
+                            >
+                              Remover
+                            </button>
+                          )}
+                        </div>
+                        {promotions.length === 0 ? (
+                          <p className="text-[10px] text-slate-400 font-medium">No hay promociones configuradas en el sistema.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <select
+                              value={selectedPromoId === 'none' ? 'none' : (currentPromotion?.id || '')}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === 'none') {
+                                  setSelectedPromoId('none');
+                                } else if (val === '') {
+                                  setSelectedPromoId(null);
+                                } else {
+                                  setSelectedPromoId(val);
+                                }
+                              }}
+                              className="w-full p-2.5 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-red-600 outline-none font-bold text-xs uppercase"
+                            >
+                              <option value="">⚡ Automático (Mejor Promoción)</option>
+                              <option value="none">-- Sin Promoción --</option>
+                              {activePromotions.length > 0 && (
+                                <optgroup label="★ Promociones Activas Hoy">
+                                  {activePromotions.map(promo => (
+                                    <option key={promo.id} value={promo.id}>
+                                      {promo.name} ({promo.type === 'special_price' ? `Precio Especial $${promo.discountValue}` : promo.type === 'percentage' ? `${promo.discountValue}% OFF` : promo.type === 'two_for_one' ? '2x1' : promo.type === 'three_for_two' ? '3x2' : `-$${promo.discountValue}`})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {promotions.filter(p => !isPromotionActiveNow(p)).length > 0 && (
+                                <optgroup label="Otras Promociones Programadas">
+                                  {promotions.filter(p => !isPromotionActiveNow(p)).map(promo => (
+                                    <option key={promo.id} value={promo.id}>
+                                      {promo.name} (Programada)
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </select>
+
+                            {currentPromotion && (
+                              <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                                effectiveDiscount > 0 
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                                  : 'bg-amber-50 border-amber-200 text-amber-900'
+                              }`}>
+                                <div className="text-[10px] font-black uppercase">
+                                  <span>{currentPromotion.name}</span>
+                                  {promoCalcResult.message ? (
+                                    <p className="text-[9px] font-bold normal-case mt-0.5 opacity-90">{promoCalcResult.message}</p>
+                                  ) : currentPromotion.description ? (
+                                    <p className="text-[9px] font-medium normal-case mt-0.5 opacity-80">{currentPromotion.description}</p>
+                                  ) : null}
+                                </div>
+                                <span className="text-sm font-black tracking-tight shrink-0 ml-2">
+                                  {effectiveDiscount > 0 ? `-$${effectiveDiscount.toLocaleString()}` : 'No aplicable'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       <div className="pt-4 border-t border-slate-100">
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Propina (Opcional)</label>
                         <div className="flex items-center space-x-2">
@@ -762,9 +1125,15 @@ const POSView: React.FC<POSViewProps> = ({
                    </div>
                     <div className="flex flex-col border-b border-slate-800 pb-4">
                        <div className="flex justify-between items-center text-[10px] font-black opacity-60 uppercase mb-1">
-                          <span>{orderType === 'dine-in' ? 'Cuenta Mesa' : 'Items'}</span>
-                          <span>${total.toLocaleString()}</span>
+                          <span>Subtotal</span>
+                          <span>${rawSubtotal.toLocaleString()}</span>
                        </div>
+                       {effectiveDiscount > 0 && (
+                         <div className="flex justify-between items-center text-[10px] font-black text-green-400 uppercase mb-1">
+                           <span>Descuento ({currentPromotion?.name || 'Promo'})</span>
+                           <span>-${effectiveDiscount.toLocaleString()}</span>
+                         </div>
+                       )}
                        {parseFloat(tipAmount) > 0 && (
                          <div className="flex justify-between items-center text-[10px] font-black text-red-400 uppercase mb-2">
                            <span>Propina</span>
@@ -778,18 +1147,24 @@ const POSView: React.FC<POSViewProps> = ({
                     </div>
                    <button 
                     onClick={handleCheckoutSubmit}
-                    disabled={orderType === 'dine-in' && !table.trim()}
-                    className={`w-full py-4 rounded-xl font-black text-base uppercase tracking-widest transition shadow-lg active:scale-[0.98] ${
-                      orderType === 'dine-in' && !table.trim() 
+                    disabled={(orderType === 'dine-in' && !table.trim()) || isSubmitting || isSubmittingLocal}
+                    className={`w-full py-4 rounded-xl font-black text-base uppercase tracking-widest transition shadow-lg active:scale-[0.98] flex items-center justify-center space-x-2 ${
+                      (orderType === 'dine-in' && !table.trim()) || isSubmitting || isSubmittingLocal
                       ? 'bg-slate-800 text-slate-600 cursor-not-allowed' 
                       : 'bg-red-600 text-white hover:bg-red-700 shadow-red-900/40'
                     }`}
                   >
-                    {orderType === 'dine-in' 
-                      ? (existingOrder ? 'AÑADIR A MESA' : 'ABRIR CUENTA MESA') 
-                      : payLater 
-                        ? 'ENVIAR PEDIDO (POR COBRAR)' 
-                        : 'FINALIZAR COBRO'}
+                    {(isSubmitting || isSubmittingLocal) ? (
+                      <span>PROCESANDO...</span>
+                    ) : (
+                      <span>
+                        {orderType === 'dine-in' 
+                          ? (existingOrder ? 'AÑADIR A MESA' : 'ABRIR CUENTA MESA') 
+                          : payLater 
+                            ? 'ENVIAR PEDIDO (POR COBRAR)' 
+                            : 'FINALIZAR COBRO'}
+                      </span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -864,11 +1239,60 @@ const POSView: React.FC<POSViewProps> = ({
                     </div>
 
                     <div className="p-4 bg-white border-t border-slate-300">
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center px-1">
-                          <span className="text-slate-400 font-black text-[10px] uppercase tracking-widest">Monto:</span>
-                          <span className="text-3xl font-black text-black tracking-tighter">${total.toLocaleString()}</span>
+                      <div className="space-y-3">
+                        {/* Chip informativo de promoción activa aplicada */}
+                        {currentPromotion && effectiveDiscount > 0 && (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-emerald-900">
+                            <div className="flex items-center space-x-2">
+                              <Icons.Tag size={15} className="text-emerald-600 shrink-0" />
+                              <div>
+                                <p className="text-[10px] font-black uppercase leading-tight">{currentPromotion.name}</p>
+                                <p className="text-[9px] text-emerald-700 font-bold">Ahorras -${effectiveDiscount.toLocaleString()}</p>
+                              </div>
+                            </div>
+                            <button 
+                              type="button" 
+                              onClick={() => setSelectedPromoId('none')}
+                              className="text-[9px] font-black text-slate-400 hover:text-red-600 uppercase tracking-wider px-1.5 py-0.5 rounded hover:bg-white"
+                              title="Quitar promoción"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        )}
+
+                        {selectedPromoId === 'none' && bestAutoPromo && (
+                          <div className="p-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-slate-600">
+                            <span className="text-[9px] font-bold">Promo desactivada ({bestAutoPromo.name})</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setSelectedPromoId(null)}
+                              className="text-[9px] font-black text-red-600 uppercase hover:underline"
+                            >
+                              Reactivar
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          {effectiveDiscount > 0 && (
+                            <div className="flex justify-between items-center px-1 text-xs font-bold text-slate-400">
+                              <span>Subtotal:</span>
+                              <span className="line-through">${rawSubtotal.toLocaleString()}</span>
+                            </div>
+                          )}
+                          {effectiveDiscount > 0 && (
+                            <div className="flex justify-between items-center px-1 text-xs font-black text-emerald-600">
+                              <span>Descuento ({currentPromotion?.name}):</span>
+                              <span>-${effectiveDiscount.toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-slate-400 font-black text-[10px] uppercase tracking-widest">Monto:</span>
+                            <span className="text-3xl font-black text-black tracking-tighter">${total.toLocaleString()}</span>
+                          </div>
                         </div>
+
                         <button 
                           onClick={() => {
                             setShowCheckout(true);
@@ -1026,6 +1450,9 @@ const POSView: React.FC<POSViewProps> = ({
                       Volver
                     </button>
                   </div>
+                  <p className="text-[10px] text-slate-400 font-mono text-center pt-2">
+                    Teclado: [0-9] PIN • [C] Limpiar • [Esc] Volver
+                  </p>
                 </div>
               </div>
             )}

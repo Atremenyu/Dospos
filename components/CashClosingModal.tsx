@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Icons } from '../constants';
 
@@ -34,6 +34,17 @@ const CashClosingModal: React.FC<CashClosingModalProps> = ({
   const [actualTransferencia, setActualTransferencia] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isCalculated, setIsCalculated] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const realCash = parseFloat(actualCash) || 0;
   const realTarjeta = parseFloat(actualTarjeta) || 0;

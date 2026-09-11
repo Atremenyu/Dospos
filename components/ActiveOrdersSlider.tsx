@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Order, OrderStatus, PaymentMethod, User, UserRole } from '../types';
+import { Order, OrderStatus, PaymentMethod, User, UserRole, StoreSettings } from '../types';
 import { Icons } from '../constants';
 import { getQuickCashOptions } from '../utils/paymentUtils';
+import { printThermalTicketHTML } from '../services/thermalPrinter';
+import { generateTicketPDF } from '../services/pdfGenerator';
 
 interface ActiveOrdersSliderProps {
   isOpen: boolean;
@@ -14,11 +16,17 @@ interface ActiveOrdersSliderProps {
   onCancel: (id: string) => void;
   users: User[];
   roles: UserRole[];
+  settings?: StoreSettings;
 }
 
 const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
-  isOpen, onClose, orders, onDeliver, onUpdateItemStatus, onPay, onCancel, users, roles
+  isOpen, onClose, orders, onDeliver, onUpdateItemStatus, onPay, onCancel, users, roles, settings
 }) => {
+  const [activeTab, setActiveTab] = useState<'active' | 'completed_today'>('active');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [lastPrintedOrderId, setLastPrintedOrderId] = useState<string | null>(null);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const [payingMethod, setPayingMethod] = useState<PaymentMethod | null>(null);
   const [cashReceived, setCashReceived] = useState<string>('');
@@ -26,6 +34,36 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
   const [authorizedBy, setAuthorizedBy] = useState<string | null>(null);
+
+  const todayStr = useMemo(() => new Date().toDateString(), []);
+
+  const activeOrders = useMemo(() => {
+    return orders.filter(o => !(o.isPaid && o.status === 'delivered') && o.status !== 'cancelled').sort((a,b) => {
+      if (a.status === 'ready' && b.status !== 'ready') return -1;
+      if (a.status !== 'ready' && b.status === 'ready') return 1;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+  }, [orders]);
+
+  const completedTodayOrders = useMemo(() => {
+    return orders.filter(o => {
+      const isToday = new Date(o.date).toDateString() === todayStr;
+      const isCompletedOrPaid = (o.isPaid && o.status === 'delivered') || o.status === 'delivered' || o.isPaid;
+      return isToday && isCompletedOrPaid && o.status !== 'cancelled';
+    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [orders, todayStr]);
+
+  const filteredCompletedOrders = useMemo(() => {
+    if (!searchQuery.trim()) return completedTodayOrders;
+    const q = searchQuery.toLowerCase().trim();
+    return completedTodayOrders.filter(o => 
+      (o.client && o.client.toLowerCase().includes(q)) ||
+      (o.orderNumber && o.orderNumber.toString().includes(q)) ||
+      (o.id && o.id.toLowerCase().includes(q)) ||
+      (o.table && o.table.toLowerCase().includes(q)) ||
+      (o.items && o.items.some(i => i.name.toLowerCase().includes(q)))
+    );
+  }, [completedTodayOrders, searchQuery]);
 
   const handleClose = () => {
     setPayingOrderId(null);
@@ -35,7 +73,97 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
     setShowPinModal(false);
     setEnteredPin('');
     setPinError(null);
+    setSearchQuery('');
+    setActiveTab('active');
     onClose();
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showPinModal) {
+        if (/^[0-9]$/.test(e.key)) {
+          e.preventDefault();
+          if (enteredPin.length < 4) {
+            const next = enteredPin + e.key;
+            setEnteredPin(next);
+            setPinError(null);
+            if (next.length === 4) {
+              const foundUser = users.find(u => u.pin === next);
+              if (!foundUser) {
+                setPinError('PIN Incorrecto');
+                return;
+              }
+              const userRoleObj = roles.find(r => r.name === foundUser.role);
+              const canAuth = userRoleObj?.allowCourtesy || foundUser.role === 'Admin';
+              if (canAuth) {
+                setAuthorizedBy(foundUser.name);
+                setPayingMethod('Cortesía');
+                setShowPinModal(false);
+                setEnteredPin('');
+                setPinError(null);
+              } else {
+                setPinError('No autorizado para cortesías');
+              }
+            }
+          }
+        } else if (e.key === 'Backspace') {
+          e.preventDefault();
+          setEnteredPin(prev => prev.slice(0, -1));
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setShowPinModal(false);
+          setEnteredPin('');
+          setPinError(null);
+          setPayingOrderId(null);
+          setPayingMethod(null);
+        } else if (e.key.toLowerCase() === 'c' || e.key === 'Delete') {
+          e.preventDefault();
+          setEnteredPin('');
+          setPinError(null);
+        }
+        return;
+      }
+
+      if (payingOrderId && payingMethod && payingMethod !== 'Efectivo') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          onPay(payingOrderId, payingMethod);
+          setPayingOrderId(null);
+          setPayingMethod(null);
+          setCashReceived('');
+          setAuthorizedBy(null);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setPayingOrderId(null);
+          setPayingMethod(null);
+          setCashReceived('');
+          setAuthorizedBy(null);
+        }
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+          (activeEl as HTMLElement).blur();
+        } else {
+          handleClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showPinModal, enteredPin, users, roles, payingOrderId, payingMethod, onPay]);
+
+  const handlePrintTicket = (order: Order) => {
+    printThermalTicketHTML(order, settings);
+    setLastPrintedOrderId(order.id);
+    setTimeout(() => {
+      setLastPrintedOrderId(null);
+    }, 2500);
   };
   return (
     <AnimatePresence>
@@ -71,26 +199,74 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
             <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
               <div className="flex items-center space-x-4">
                 <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center text-red-600 shadow-lg rotate-3">
-                  <Icons.History />
+                  {activeTab === 'active' ? <Icons.History /> : <Icons.Printer />}
                 </div>
                 <div>
-                  <h3 className="text-xl font-black uppercase tracking-tighter text-black leading-none">Pedidos Activos</h3>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1.5">Desliza para cerrar</p>
+                  <h3 className="text-xl font-black uppercase tracking-tighter text-black leading-none">
+                    {activeTab === 'active' ? 'Pedidos Activos' : 'Pedidos del Día'}
+                  </h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1.5">
+                    {activeTab === 'active' ? 'Desliza para cerrar' : 'Reimpresión de tickets'}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center">
-                <span className="bg-red-600 text-white text-[10px] font-black px-3 py-1 rounded-full animate-pulse shadow-lg shadow-red-100">
-                  {orders.filter(o => !(o.isPaid && o.status === 'delivered') && o.status !== 'cancelled').length} EN VIVO
-                </span>
+                {activeTab === 'active' ? (
+                  <span className="bg-red-600 text-white text-[10px] font-black px-3 py-1 rounded-full animate-pulse shadow-lg shadow-red-100">
+                    {activeOrders.length} EN VIVO
+                  </span>
+                ) : (
+                  <span className="bg-black text-white text-[10px] font-black px-3 py-1 rounded-full shadow-sm">
+                    {completedTodayOrders.length} HOY
+                  </span>
+                )}
               </div>
             </div>
 
+            {/* Pestañas sutiles: Activos vs Pedidos Anteriores de Hoy */}
+            <div className="px-4 py-2 bg-slate-100/90 border-b border-slate-200 flex space-x-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveTab('active')}
+                className={`flex-1 py-1.5 px-3 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                  activeTab === 'active'
+                    ? 'bg-white text-black shadow-xs border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                <span>Pedidos Activos</span>
+                <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                  activeTab === 'active'
+                    ? (activeOrders.length > 0 ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700')
+                    : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {activeOrders.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('completed_today')}
+                className={`flex-1 py-1.5 px-3 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 ${
+                  activeTab === 'completed_today'
+                    ? 'bg-white text-black shadow-xs border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                <Icons.Printer size={12} className={activeTab === 'completed_today' ? 'text-red-600' : 'text-slate-400'} />
+                <span>Pedidos Anteriores</span>
+                <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                  activeTab === 'completed_today' ? 'bg-black text-white' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {completedTodayOrders.length}
+                </span>
+              </button>
+            </div>
+
             <div className="flex-grow overflow-y-auto p-4 space-y-4 bg-slate-50/50">
-              {orders.filter(o => !(o.isPaid && o.status === 'delivered') && o.status !== 'cancelled').sort((a,b) => {
-                if (a.status === 'ready' && b.status !== 'ready') return -1;
-                if (a.status !== 'ready' && b.status === 'ready') return 1;
-                return new Date(b.date).getTime() - new Date(a.date).getTime();
-              }).map(order => {
+              {activeTab === 'active' ? (
+                <>
+                  {activeOrders.map(order => {
                 const isReady = order.status === 'ready';
                 const isPreparing = order.status === 'preparing';
                 
@@ -228,6 +404,23 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                                       type="number"
                                       value={cashReceived}
                                       onChange={(e) => setCashReceived(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          const rec = parseFloat(cashReceived) || 0;
+                                          if (rec >= order.total) {
+                                            onPay(order.id, 'Efectivo');
+                                            setPayingOrderId(null);
+                                            setPayingMethod(null);
+                                            setCashReceived('');
+                                          }
+                                        } else if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          setPayingOrderId(null);
+                                          setPayingMethod(null);
+                                          setCashReceived('');
+                                        }
+                                      }}
                                       className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-7 pr-3 text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 font-mono"
                                       placeholder="0"
                                       autoFocus
@@ -418,12 +611,179 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                   </motion.div>
                 );
               })}
-              {orders.filter(o => !(o.isPaid && o.status === 'delivered') && o.status !== 'cancelled').length === 0 && (
-                <div className="flex flex-col items-center justify-center h-64 text-slate-400 opacity-40">
+              {activeOrders.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-64 text-slate-400 opacity-60">
                   <Icons.History />
                   <p className="text-[10px] font-black uppercase tracking-widest mt-4">Sin pedidos activos</p>
                 </div>
               )}
+            </>
+          ) : (
+            /* Vista de Pedidos Anteriores de Hoy para Reimpresión */
+            <div className="space-y-3">
+              {/* Buscador de pedidos anteriores */}
+              {completedTodayOrders.length > 2 && (
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    <Icons.Search size={14} />
+                  </div>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar cliente, comanda # o mesa..."
+                    className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-xs font-bold text-slate-800 placeholder-slate-400 outline-none focus:border-red-600 shadow-xs"
+                  />
+                  {searchQuery && (
+                    <button 
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold w-5 h-5 flex items-center justify-center"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {filteredCompletedOrders.map(order => {
+                const isPrinted = lastPrintedOrderId === order.id;
+                const isExpanded = expandedOrderId === order.id;
+                const totalItems = order.items.reduce((s, i) => s + (i.quantity || 1), 0);
+
+                return (
+                  <motion.div 
+                    key={order.id}
+                    layout
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-3 hover:border-slate-300 transition"
+                  >
+                    {/* Cabecera del pedido completado */}
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          <span className="text-[10px] font-black bg-black text-white px-2 py-0.5 rounded font-mono">
+                            {order.orderNumber ? `#${order.orderNumber}` : `#${order.id.slice(-4)}`}
+                          </span>
+                          <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {order.type === 'dine-in' ? `MESA ${order.table}` : (order.takeawayType === 'delivery' ? 'DOMICILIO' : 'LLEVAR')}
+                          </span>
+                          <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                            PAGADO ✓
+                          </span>
+                        </div>
+                        <h4 className="font-black text-sm uppercase text-slate-900 mt-1.5 tracking-tight">
+                          {order.client || 'Cliente General'}
+                        </h4>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="font-black text-base text-slate-900 tracking-tight font-mono">
+                          ${order.total.toLocaleString()}
+                        </p>
+                        <p className="text-[9px] font-bold text-slate-400">
+                          {new Date(order.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Fila de pago y desglose */}
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="text-slate-400 font-medium">Pago:</span>
+                        <span className="font-black text-slate-800 uppercase">{order.payment || 'Efectivo'}</span>
+                        {order.tip && order.tip > 0 ? (
+                          <span className="text-blue-600 font-bold ml-1">(Prop: ${order.tip})</span>
+                        ) : null}
+                      </span>
+                      <button 
+                        type="button" 
+                        onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                        className="text-[9px] font-black text-red-600 hover:underline uppercase flex items-center space-x-1"
+                      >
+                        <span>{totalItems} {totalItems === 1 ? 'producto' : 'productos'}</span>
+                        <span className="text-[8px]">{isExpanded ? '▲' : '▼'}</span>
+                      </button>
+                    </div>
+
+                    {/* Detalle de productos desplegable */}
+                    {isExpanded && (
+                      <div className="space-y-1.5 pt-2 pb-1 border-t border-slate-100 text-[10px] text-slate-600">
+                        {order.items.map((item, idx) => (
+                          <div key={idx} className="flex justify-between items-center py-0.5 border-b border-slate-50 last:border-0">
+                            <span>
+                              <strong className="text-slate-900 mr-1.5">{item.quantity}x</strong>
+                              {item.name}
+                            </span>
+                            <span className="font-mono font-bold text-slate-900">
+                              ${(item.price * item.quantity).toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                        {order.discount && order.discount > 0 ? (
+                          <div className="flex justify-between items-center text-emerald-600 font-bold pt-1">
+                            <span>Descuento ({order.promotionName || 'Promo'})</span>
+                            <span>-${order.discount.toLocaleString()}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {/* Botones de acción: Reimprimir Ticket Térmico / Descargar PDF */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handlePrintTicket(order)}
+                        className={`flex-1 py-2.5 px-3 rounded-xl font-black text-[10px] uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-xs ${
+                          isPrinted 
+                            ? 'bg-emerald-600 text-white' 
+                            : 'bg-black hover:bg-red-600 text-white active:scale-98'
+                        }`}
+                      >
+                        {isPrinted ? (
+                          <>
+                            <Icons.Check size={13} />
+                            <span>✓ Ticket Enviado</span>
+                          </>
+                        ) : (
+                          <>
+                            <Icons.Printer size={13} />
+                            <span>Reimprimir Ticket</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => generateTicketPDF(order, settings || 'DOS POS')}
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition flex items-center justify-center"
+                        title="Descargar Ticket en PDF"
+                      >
+                        <Icons.FileText size={15} />
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
+
+              {filteredCompletedOrders.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+                    <Icons.Printer size={20} />
+                  </div>
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-600">
+                    {searchQuery ? 'No se encontraron pedidos' : 'Sin pedidos anteriores hoy'}
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-400 text-center max-w-[240px] mt-1">
+                    {searchQuery 
+                      ? 'Intenta buscar con otro nombre o comanda.' 
+                      : 'Los pedidos pagados y completados de la jornada aparecerán aquí para reimpresión.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
             </div>
           </motion.div>
         </div>

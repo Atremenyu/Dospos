@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User } from '../types';
 import { Icons } from '../constants';
@@ -14,10 +14,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
-  const handlePinInput = (digit: string) => {
-    if (pin.length < 4) {
-      const newPin = pin + digit;
-      setPin(newPin);
+  const handlePinInput = useCallback((digit: string) => {
+    setPin(prev => {
+      if (prev.length >= 4) return prev;
+      const newPin = prev + digit;
       
       if (newPin.length === 4) {
         if (selectedUser && newPin === selectedUser.pin) {
@@ -30,12 +30,66 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
           }, 1000);
         }
       }
-    }
-  };
+      return newPin;
+    });
+  }, [selectedUser, onLogin]);
 
-  const handleBackspace = () => {
+  const handleBackspace = useCallback(() => {
     setPin(prev => prev.slice(0, -1));
-  };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Numbers from standard row and numpad
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        if (!selectedUser) {
+          const idx = parseInt(e.key, 10) - 1;
+          if (idx >= 0 && idx < users.length) {
+            setSelectedUser(users[idx]);
+            setPin('');
+          }
+        } else {
+          handlePinInput(e.key);
+        }
+      } else if (e.key === 'Backspace') {
+        if (selectedUser) {
+          e.preventDefault();
+          handleBackspace();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (selectedUser) {
+          if (pin.length > 0) {
+            setPin('');
+          } else {
+            setSelectedUser(null);
+          }
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (selectedUser && pin.length === 4) {
+          if (pin === selectedUser.pin) {
+            onLogin(selectedUser);
+          } else {
+            setError(true);
+            setTimeout(() => {
+              setPin('');
+              setError(false);
+            }, 1000);
+          }
+        }
+      } else if (e.key.toLowerCase() === 'c' || e.key === 'Delete') {
+        if (selectedUser) {
+          e.preventDefault();
+          setPin('');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedUser, users, pin, handlePinInput, handleBackspace, onLogin]);
 
   return (
     <div className="fixed inset-0 bg-slate-50 flex items-center justify-center p-4 z-50">
@@ -68,12 +122,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
                   }`}>
                     <Icons.User size={24} />
                   </div>
-                  <div className="text-left">
+                  <div className="text-left flex-1">
                     <p className="font-black uppercase tracking-tight leading-none mb-1">{user.name}</p>
                     <p className={`text-xs font-bold uppercase tracking-widest ${
                       selectedUser?.id === user.id ? 'text-white/70' : 'text-slate-400'
                     }`}>{user.role}</p>
                   </div>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-bold tracking-tight ${
+                    selectedUser?.id === user.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    [{users.indexOf(user) + 1}]
+                  </span>
                 </button>
               ))}
             </div>
@@ -157,6 +216,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
                   >
                     <Icons.Minus size={24} />
                   </button>
+                </div>
+                
+                <div className="mt-4 flex items-center justify-center space-x-2 text-[10px] font-bold text-slate-400">
+                  <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">0-9</span>
+                  <span>PIN</span>
+                  <span>•</span>
+                  <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">Enter</span>
+                  <span>Entrar</span>
+                  <span>•</span>
+                  <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">Esc</span>
+                  <span>Volver</span>
                 </div>
                 
                 {error && (
