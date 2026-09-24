@@ -142,8 +142,8 @@ const App: React.FC = () => {
           serverState = await response.json();
           console.log("Estado inicial cargado desde el servidor:", serverState);
         }
-      } catch (err) {
-        console.error("No se pudo cargar el estado inicial desde el servidor:", err);
+      } catch (err: any) {
+        console.warn("Conexión con servidor en espera, cargando datos locales:", err?.message || err);
       }
 
       const serverHasData = Object.keys(serverState).length > 0;
@@ -358,22 +358,25 @@ const App: React.FC = () => {
 
     let reconnectTimeout: any = null;
     let isDisposed = false;
+    let isFetching = false;
 
     const fetchInitialState = async () => {
+      if (isDisposed || isFetching) return;
+      isFetching = true;
       try {
-        console.log("Fetching initial state via HTTP fallback...");
         const response = await fetch('/api/db');
         if (response.ok && !isDisposed) {
           const serverState = await response.json();
           if (serverState && Object.keys(serverState).length > 0) {
-            console.log("HTTP fallback state loaded successfully!");
             Object.keys(serverState).forEach((key) => {
               applyServerUpdate(key, serverState[key]);
             });
           }
         }
-      } catch (err) {
-        console.error("HTTP fallback failed:", err);
+      } catch (err: any) {
+        console.warn("Sincronización HTTP en espera de conexión:", err?.message || err);
+      } finally {
+        isFetching = false;
       }
     };
 
@@ -440,8 +443,8 @@ const App: React.FC = () => {
             localStorage.clear();
             window.location.reload();
           }
-        } catch (err) {
-          console.error("Error procesando mensaje de WebSocket:", err);
+        } catch (err: any) {
+          console.warn("Mensaje de sincronización no procesable:", err?.message || err);
         }
       };
 
@@ -691,13 +694,22 @@ const App: React.FC = () => {
 
   const handleOpenCashShift = (initialFund: number) => {
     if (!currentUser) return;
+    // Guard against opening a duplicate cash shift if one is already open
+    const existingOpen = cashShifts.find(s => s.status === 'open');
+    if (existingOpen) {
+      console.warn("Ya existe un turno de caja abierto:", existingOpen.id);
+      setView('pos');
+      return;
+    }
+
     const newShift: CashShift = {
-      id: Date.now().toString(),
+      id: generateSecureId('csh'),
       userId: currentUser.id,
       userName: currentUser.name,
       openingTime: new Date().toISOString(),
       initialFund,
-      status: 'open'
+      status: 'open',
+      updatedAt: new Date().toISOString()
     };
     setCashShifts(prev => [...prev, newShift]);
     setView('pos');
@@ -736,7 +748,8 @@ const App: React.FC = () => {
       actualTransferencia,
       differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
       expectedOtros: stats.expectedOtros,
-      expectedCourtesy: stats.expectedCourtesy
+      expectedCourtesy: stats.expectedCourtesy,
+      updatedAt: new Date().toISOString()
     };
 
     setCashShifts(prev => prev.map(s => s.id === openShift.id ? closedShift : s));

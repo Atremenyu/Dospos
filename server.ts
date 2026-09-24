@@ -13,13 +13,20 @@ app.use(express.json({ limit: "50mb" }));
 
 // Database configuration & Railway volume mount path resolution
 function resolveDataDir(): string {
-  if (process.env.DATA_DIR) {
-    return process.env.DATA_DIR;
+  if (process.env.DATA_DIR && process.env.DATA_DIR.trim()) {
+    return process.env.DATA_DIR.trim();
   }
-  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
-    return process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  if (process.env.RAILWAY_VOLUME_MOUNT_PATH && process.env.RAILWAY_VOLUME_MOUNT_PATH.trim()) {
+    return process.env.RAILWAY_VOLUME_MOUNT_PATH.trim();
   }
-  if (fs.existsSync("/app/data") || process.env.RAILWAY_ENVIRONMENT) {
+  // Check if standard volume paths exist in production / Railway
+  if (fs.existsSync("/app/data")) {
+    return "/app/data";
+  }
+  if (fs.existsSync("/data")) {
+    return "/data";
+  }
+  if (process.env.RAILWAY_ENVIRONMENT) {
     return "/app/data";
   }
   return path.join(process.cwd(), "data");
@@ -72,7 +79,9 @@ function loadDatabase() {
   }
 
   console.log("No existing database found, starting clean in:", DATA_DIR);
-  dbState = {};
+  dbState = {
+    isInitialized: true,
+  };
 }
 
 loadDatabase();
@@ -80,6 +89,8 @@ loadDatabase();
 // Thread-safe save helper with automatic backup and atomic write
 function saveDbToDisk() {
   try {
+    // Ensure initialized mark is persisted
+    dbState.isInitialized = true;
     const serialized = JSON.stringify(dbState, null, 2);
     const tempFile = path.join(DATA_DIR, `db_${Date.now()}.tmp`);
 
@@ -195,7 +206,20 @@ const MANAGED_BY_ID_KEYS = [
   "cashShifts"
 ];
 
-function mergeById(existing: any[], incoming: any[]): any[] {
+function deduplicateProducts(products: any[]): any[] {
+  if (!Array.isArray(products)) return [];
+  const seenIds = new Set<string>();
+  const result: any[] = [];
+  products.forEach((p) => {
+    if (p && p.id && !seenIds.has(p.id)) {
+      seenIds.add(p.id);
+      result.push(p);
+    }
+  });
+  return result;
+}
+
+function mergeById(existing: any[], incoming: any[], entityKey?: string): any[] {
   if (!Array.isArray(existing)) return incoming || [];
   if (!Array.isArray(incoming)) return existing || [];
 
@@ -208,7 +232,19 @@ function mergeById(existing: any[], incoming: any[]): any[] {
     if (!extItem) {
       mergedMap.set(incItem.id, incItem);
     } else {
-      // If both have updatedAt, take newer
+      // Rule 1: For cash shifts, a closed shift can NEVER be overwritten by an open shift
+      if (entityKey === "cashShifts" || incItem.status || extItem.status) {
+        if (extItem.status === "closed" && incItem.status === "open") {
+          // Keep existing closed shift; do not revert
+          return;
+        }
+        if (incItem.status === "closed" && extItem.status === "open") {
+          mergedMap.set(incItem.id, incItem);
+          return;
+        }
+      }
+
+      // Rule 2: If both have updatedAt, take newer
       if (extItem.updatedAt && incItem.updatedAt) {
         const timeExt = new Date(extItem.updatedAt).getTime();
         const timeInc = new Date(incItem.updatedAt).getTime();
@@ -226,7 +262,16 @@ function mergeById(existing: any[], incoming: any[]): any[] {
     }
   });
 
-  return Array.from(mergedMap.values());
+  const list = Array.from(mergedMap.values());
+  // Sort cashShifts by openingTime descending
+  if (entityKey === "cashShifts") {
+    list.sort((a, b) => {
+      const timeA = a.openingTime ? new Date(a.openingTime).getTime() : 0;
+      const timeB = b.openingTime ? new Date(b.openingTime).getTime() : 0;
+      return timeB - timeA;
+    });
+  }
+  return list;
 }
 
 function mergeBulkState(existingState: Record<string, any>, incomingState: Record<string, any>): Record<string, any> {
@@ -236,12 +281,34 @@ function mergeBulkState(existingState: Record<string, any>, incomingState: Recor
     if (key === "orders") {
       newState[key] = mergeOrders(newState[key], data);
     } else if (MANAGED_BY_ID_KEYS.includes(key)) {
-      newState[key] = mergeById(newState[key], data);
+      newState[key] = mergeById(newState[key], data, key);
+    } else if (key === "products") {
+      newState[key] = deduplicateProducts(data);
+    } else if (key === "categories") {
+      newState[key] = Array.isArray(data)
+        ? Array.from(new Set(data.map((c: any) => (typeof c === "string" ? c.trim() : c)))).filter(Boolean)
+        : data;
     } else {
       newState[key] = data;
     }
   });
   return newState;
+}
+
+function applySingleKeyUpdate(key: string, data: any) {
+  if (key === "orders") {
+    dbState[key] = mergeOrders(dbState[key], data);
+  } else if (MANAGED_BY_ID_KEYS.includes(key)) {
+    dbState[key] = mergeById(dbState[key], data, key);
+  } else if (key === "products") {
+    dbState[key] = deduplicateProducts(data);
+  } else if (key === "categories") {
+    dbState[key] = Array.isArray(data)
+      ? Array.from(new Set(data.map((c: any) => (typeof c === "string" ? c.trim() : c)))).filter(Boolean)
+      : data;
+  } else {
+    dbState[key] = data;
+  }
 }
 
 // HTTP Server and WebSocket server setup
@@ -271,13 +338,7 @@ wss.on("connection", (ws) => {
       if (parsed.type === "SAVE") {
         const { key, data } = parsed;
         if (key) {
-          if (key === "orders") {
-            dbState[key] = mergeOrders(dbState[key], data);
-          } else if (MANAGED_BY_ID_KEYS.includes(key)) {
-            dbState[key] = mergeById(dbState[key], data);
-          } else {
-            dbState[key] = data;
-          }
+          applySingleKeyUpdate(key, data);
           saveDbToDisk();
           // Broadcast the merged state to EVERYONE (including sender) to resolve conflicts
           broadcast({ type: "UPDATE", key, data: dbState[key] });
@@ -308,6 +369,12 @@ app.get("/api/health", (req, res) => {
     dbFile: DB_FILE,
     dbExists: fs.existsSync(DB_FILE),
     backupExists: fs.existsSync(BACKUP_FILE),
+    isInitialized: !!dbState.isInitialized,
+    env: {
+      DATA_DIR: process.env.DATA_DIR || null,
+      RAILWAY_VOLUME_MOUNT_PATH: process.env.RAILWAY_VOLUME_MOUNT_PATH || null,
+      RAILWAY_ENVIRONMENT: process.env.RAILWAY_ENVIRONMENT || null
+    },
     counts: {
       orders: Array.isArray(dbState.orders) ? dbState.orders.length : 0,
       products: Array.isArray(dbState.products) ? dbState.products.length : 0,
@@ -354,13 +421,7 @@ app.post("/api/db/save", (req, res) => {
   if (!key) {
     return res.status(400).json({ error: "Missing key" });
   }
-  if (key === "orders") {
-    dbState[key] = mergeOrders(dbState[key], data);
-  } else if (MANAGED_BY_ID_KEYS.includes(key)) {
-    dbState[key] = mergeById(dbState[key], data);
-  } else {
-    dbState[key] = data;
-  }
+  applySingleKeyUpdate(key, data);
   saveDbToDisk();
   broadcast({ type: "UPDATE", key, data: dbState[key] });
   res.json({ success: true, data: dbState[key] });

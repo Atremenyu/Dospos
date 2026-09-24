@@ -71,8 +71,8 @@ async function saveToServer(localStorageKey: string, data: any) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: apiKey, data })
     });
-  } catch (err) {
-    console.error(`Failed to sync key ${apiKey} to server:`, err);
+  } catch (err: any) {
+    console.warn(`Sincronización diferida para ${apiKey}:`, err?.message || err);
   }
 }
 
@@ -268,8 +268,8 @@ export const storage = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-    } catch (err) {
-      console.error('Failed to save bulk data to server:', err);
+    } catch (err: any) {
+      console.warn('Sincronización masiva diferida:', err?.message || err);
     }
   }
 };

@@ -224,11 +224,24 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
   const [userFormRole, setUserFormRole] = useState<string>('Caja');
 
   const handleSaveProduct = () => {
-    if (!name || price <= 0 || !category) return;
+    const trimmedName = name.trim();
+    if (!trimmedName || price <= 0 || !category) return;
+
+    // Prevent duplicate product names in the same category when creating
+    if (!editingId) {
+      const alreadyExists = products.some(
+        p => p.name.trim().toLowerCase() === trimmedName.toLowerCase() && 
+             p.category.trim().toLowerCase() === category.trim().toLowerCase()
+      );
+      if (alreadyExists) {
+        alert(`Ya existe un producto con el nombre "${trimmedName}" en la categoría "${category}". Edita el producto existente o usa un nombre distintivo.`);
+        return;
+      }
+    }
 
     const cleanProduct: Product = {
-      id: editingId || Date.now().toString(),
-      name,
+      id: editingId || `prd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: trimmedName,
       price,
       category,
       hasCombo,
@@ -241,7 +254,10 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
       setProducts(prev => prev.map(p => p.id === editingId ? cleanProduct : p));
       setEditingId(null);
     } else {
-      setProducts(prev => [...prev, cleanProduct]);
+      setProducts(prev => {
+        if (prev.some(p => p.id === cleanProduct.id)) return prev;
+        return [...prev, cleanProduct];
+      });
       setIsAdding(false);
     }
     resetProductForm();
