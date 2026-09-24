@@ -18,12 +18,19 @@ function resolveDataDir(): string {
   if (process.env.RAILWAY_VOLUME_MOUNT_PATH && process.env.RAILWAY_VOLUME_MOUNT_PATH.trim()) {
     return process.env.RAILWAY_VOLUME_MOUNT_PATH.trim();
   }
-  // Check if standard volume paths exist in production / Railway
-  if (fs.existsSync("/app/data")) {
+  // Check if existing database exists in mounted volume directories
+  if (fs.existsSync("/data/db.json")) {
+    return "/data";
+  }
+  if (fs.existsSync("/app/data/db.json")) {
     return "/app/data";
   }
+  // Check standard mounted directory targets
   if (fs.existsSync("/data")) {
     return "/data";
+  }
+  if (fs.existsSync("/app/data")) {
+    return "/app/data";
   }
   if (process.env.RAILWAY_ENVIRONMENT) {
     return "/app/data";
@@ -32,6 +39,7 @@ function resolveDataDir(): string {
 }
 
 const DATA_DIR = resolveDataDir();
+console.log(`[Storage] Resolved DATA_DIR: ${DATA_DIR}`);
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const BACKUP_FILE = path.join(DATA_DIR, "db.json.bak");
 
@@ -385,10 +393,13 @@ wss.on("connection", (ws: ExtWebSocket) => {
   });
 });
 
-// API Routes
-app.get("/api/health", (req, res) => {
-  res.json({
+// API Routes - Health checks supporting all common paths for Railway and container orchestrators
+const healthResponse = (req: express.Request, res: express.Response) => {
+  res.status(200).json({
     status: "ok",
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    port: PORT,
     dataDir: DATA_DIR,
     dbFile: DB_FILE,
     dbExists: fs.existsSync(DB_FILE),
@@ -406,6 +417,11 @@ app.get("/api/health", (req, res) => {
       promotions: Array.isArray(dbState.promotions) ? dbState.promotions.length : 0,
     }
   });
+};
+
+app.get(["/api/health", "/health", "/healthz", "/ping", "/api/ping"], healthResponse);
+app.head(["/api/health", "/health", "/healthz", "/ping", "/api/ping", "/"], (req, res) => {
+  res.status(200).end();
 });
 
 app.get("/api/next-order-number", (req, res) => {
@@ -492,3 +508,43 @@ setupVite().then(() => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 });
+
+// Graceful shutdown handling for container managers like Railway / Docker
+let isShuttingDown = false;
+function handleShutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[Server] Received ${signal}. Starting graceful shutdown...`);
+  try {
+    saveDbToDisk();
+    console.log("[Server] Database successfully persisted before exit.");
+  } catch (err) {
+    console.error("[Server] Error saving database during shutdown:", err);
+  }
+
+  // Close active WS connections
+  try {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close(1001, "Server restarting");
+      }
+    });
+  } catch (wsErr) {
+    // Ignore WS close errors
+  }
+
+  server.close(() => {
+    console.log("[Server] All active connections closed cleanly. Exiting.");
+    process.exit(0);
+  });
+
+  // Force exit after 6s in case keep-alive sockets remain open
+  setTimeout(() => {
+    console.warn("[Server] Forcefully terminating process after timeout.");
+    process.exit(0);
+  }, 6000).unref();
+}
+
+process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+process.on("SIGINT", () => handleShutdown("SIGINT"));
+
