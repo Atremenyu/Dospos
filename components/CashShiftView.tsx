@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { CashShift } from '../types';
 import { Icons } from '../constants';
-import { printCashShiftTicketHTML } from '../services/thermalPrinter';
+import { printCashShiftTicketHTML, computeShiftCategorySales } from '../services/thermalPrinter';
 
 interface CashShiftViewProps {
   cashShifts: CashShift[];
@@ -275,6 +275,60 @@ const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, onOpenSetting
                               </div>
                             </div>
                           )}
+
+                          {(() => {
+                            const catData = (shift.categoryBreakdown && shift.categoryBreakdown.length > 0)
+                              ? shift.categoryBreakdown
+                              : computeShiftCategorySales(shift).categoryBreakdown;
+
+                            if (!catData || catData.length === 0) return null;
+
+                            return (
+                              <div className="pt-4 border-t border-slate-200/60">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                                    Ventas por Categoría (Separado por Categoría)
+                                  </h4>
+                                  <span className="text-[9px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                    Ordenado por mayor venta
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                  {catData.map((cat, idx) => (
+                                    <div key={idx} className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                                      <div>
+                                        <div className="flex items-center justify-between mb-1.5">
+                                          <span className="text-xs font-black uppercase text-black tracking-tight">{cat.category}</span>
+                                          <span className="text-[9px] font-black px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full">{cat.percentage.toFixed(0)}%</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px] text-slate-500 mb-2">
+                                          <span>Artículos vendidos:</span>
+                                          <span className="font-bold text-slate-800">{cat.totalQuantity} arts</span>
+                                        </div>
+                                        {cat.products && cat.products.length > 0 && (
+                                          <div className="space-y-1 pt-1.5 border-t border-slate-100 max-h-24 overflow-y-auto pr-1">
+                                            {cat.products.slice(0, 4).map((prod, pIdx) => (
+                                              <div key={pIdx} className="flex justify-between text-[9px] text-slate-600">
+                                                <span className="truncate pr-2">{prod.quantity}x {prod.name}</span>
+                                                <span className="font-semibold text-slate-800 shrink-0">${prod.total.toFixed(2)}</span>
+                                              </div>
+                                            ))}
+                                            {cat.products.length > 4 && (
+                                              <p className="text-[8px] text-slate-400 italic text-right">+ {cat.products.length - 4} más...</p>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="pt-2 mt-2 border-t border-slate-100 flex justify-between items-center text-xs font-black text-black">
+                                        <span>Total Categoría:</span>
+                                        <span className="text-red-600">${cat.totalSales.toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </td>
                     </tr>

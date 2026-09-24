@@ -146,6 +146,20 @@ export interface Shift {
   updatedAt?: string;
 }
 
+export interface CategoryProductSale {
+  name: string;
+  quantity: number;
+  total: number;
+}
+
+export interface CategorySalesSummary {
+  category: string;
+  totalSales: number;
+  totalQuantity: number;
+  percentage: number;
+  products: CategoryProductSale[];
+}
+
 export interface CashShift {
   id: string;
   userId: string;
@@ -169,6 +183,8 @@ export interface CashShift {
   differenceTransferencia?: number;
   expectedOtros?: number;
   expectedCourtesy?: number;
+  categoryBreakdown?: CategorySalesSummary[];
+  totalArticlesSold?: number;
   updatedAt?: string;
 }
 

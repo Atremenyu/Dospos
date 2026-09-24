@@ -14,7 +14,7 @@ import { LoginView } from './components/LoginView';
 import { SetupWizard } from './components/SetupWizard';
 import CashOpeningModal from './components/CashOpeningModal';
 import CashClosingModal from './components/CashClosingModal';
-import { printCashShiftTicketHTML } from './services/thermalPrinter';
+import { printCashShiftTicketHTML, computeShiftCategorySales } from './services/thermalPrinter';
 import AdminCRM from './components/AdminCRM';
 
 const App: React.FC = () => {
@@ -730,6 +730,9 @@ const App: React.FC = () => {
     const stats = getCashShiftStats(openShift);
     const actualAmount = actualCash + actualTarjeta + actualTransferencia;
     
+    // Calcular desglose de ventas por categoría
+    const categoryData = computeShiftCategorySales(openShift, orders, products);
+
     const closedShift: CashShift = {
       ...openShift,
       closingTime: new Date().toISOString(),
@@ -749,6 +752,8 @@ const App: React.FC = () => {
       differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
       expectedOtros: stats.expectedOtros,
       expectedCourtesy: stats.expectedCourtesy,
+      categoryBreakdown: categoryData.categoryBreakdown,
+      totalArticlesSold: categoryData.totalArticlesSold,
       updatedAt: new Date().toISOString()
     };
 

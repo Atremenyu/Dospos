@@ -1,4 +1,4 @@
-import { Order, CashShift, StoreSettings } from '../types';
+import { Order, CashShift, StoreSettings, CategorySalesSummary, CategoryProductSale, Product } from '../types';
 import { storage } from './storage';
 import { numberToWordsSpanish } from '../utils/numberToWords';
 import {
@@ -464,6 +464,149 @@ export const printThermalTicketHTML = (
 };
 
 /**
+ * Calcula las ventas agrupadas y desglosadas por categoría para un turno de caja
+ */
+export const computeShiftCategorySales = (
+  shift: CashShift,
+  ordersList?: Order[],
+  productsCatalog?: Product[]
+): {
+  categoryBreakdown: CategorySalesSummary[];
+  totalArticlesSold: number;
+  categorySalesTotal: number;
+} => {
+  const orders = ordersList || storage.getOrders() || [];
+  const products = productsCatalog || storage.getProducts() || [];
+
+  const shiftOpeningTime = new Date(shift.openingTime).getTime();
+  let shiftClosingTime: number;
+  if (shift.closingTime) {
+    shiftClosingTime = new Date(shift.closingTime).getTime();
+  } else {
+    const openingDate = new Date(shift.openingTime);
+    const today = new Date();
+    const isPastDay = openingDate.toDateString() !== today.toDateString();
+    if (isPastDay) {
+      const endOfOpeningDay = new Date(openingDate);
+      endOfOpeningDay.setHours(23, 59, 59, 999);
+      shiftClosingTime = Math.max(endOfOpeningDay.getTime(), shiftOpeningTime);
+    } else {
+      shiftClosingTime = Date.now();
+    }
+  }
+
+  const categoryMap = new Map<string, {
+    category: string;
+    totalSales: number;
+    totalQuantity: number;
+    productsMap: Map<string, { name: string; quantity: number; total: number }>;
+  }>();
+
+  let totalArticlesSold = 0;
+  let overallSalesTotal = 0;
+
+  // Mapa de productos del catálogo para resolución de categoría si falta en el ítem
+  const catalogMap = new Map<string, Product>();
+  products.forEach(p => {
+    if (p.id) catalogMap.set(p.id, p);
+    if (p.name) catalogMap.set(p.name.trim().toLowerCase(), p);
+  });
+
+  orders.forEach(o => {
+    if (o.status === 'cancelled') return;
+
+    let inShift = false;
+    if (o.payments && o.payments.length > 0) {
+      inShift = o.payments.some(p => {
+        const t = new Date(p.timestamp).getTime();
+        return t >= shiftOpeningTime && t <= shiftClosingTime;
+      });
+    } else if (o.isPaid) {
+      const t = new Date(o.date).getTime();
+      inShift = t >= shiftOpeningTime && t <= shiftClosingTime;
+    }
+
+    if (!inShift) return;
+
+    const items = o.items || [];
+    items.forEach(item => {
+      const qty = Number(item.quantity) || 1;
+      let unitPrice = Number(item.price) || 0;
+      if (item.selectedModifiers && Array.isArray(item.selectedModifiers)) {
+        unitPrice += item.selectedModifiers.reduce((sum, m) => sum + (Number(m.extraPrice) || 0), 0);
+      }
+      if (item.selectedComboOptions && Array.isArray(item.selectedComboOptions)) {
+        unitPrice += item.selectedComboOptions.reduce((sum, c) => sum + (Number(c.extraPrice) || 0), 0);
+      }
+      const itemTotal = unitPrice * qty;
+
+      let categoryName = item.category ? item.category.trim() : '';
+      if (!categoryName) {
+        const prod = catalogMap.get(item.id) || catalogMap.get((item.name || '').trim().toLowerCase());
+        if (prod && prod.category) categoryName = prod.category.trim();
+      }
+      if (!categoryName) {
+        categoryName = 'General';
+      }
+
+      totalArticlesSold += qty;
+      overallSalesTotal += itemTotal;
+
+      if (!categoryMap.has(categoryName)) {
+        categoryMap.set(categoryName, {
+          category: categoryName,
+          totalSales: 0,
+          totalQuantity: 0,
+          productsMap: new Map()
+        });
+      }
+
+      const catEntry = categoryMap.get(categoryName)!;
+      catEntry.totalSales += itemTotal;
+      catEntry.totalQuantity += qty;
+
+      const prodName = item.name ? item.name.trim() : 'Artículo';
+      if (!catEntry.productsMap.has(prodName)) {
+        catEntry.productsMap.set(prodName, {
+          name: prodName,
+          quantity: 0,
+          total: 0
+        });
+      }
+      const prodEntry = catEntry.productsMap.get(prodName)!;
+      prodEntry.quantity += qty;
+      prodEntry.total += itemTotal;
+    });
+  });
+
+  const categoryBreakdown: CategorySalesSummary[] = Array.from(categoryMap.values())
+    .map(cat => {
+      const productsList = Array.from(cat.productsMap.values()).sort((a, b) => {
+        if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+        return b.total - a.total;
+      });
+
+      const percentage = overallSalesTotal > 0 ? (cat.totalSales / overallSalesTotal) * 100 : 0;
+
+      return {
+        category: cat.category,
+        totalSales: cat.totalSales,
+        totalQuantity: cat.totalQuantity,
+        percentage,
+        products: productsList
+      };
+    })
+    // Ordenar de mayor a menor venta para saber qué categoría vendió más
+    .sort((a, b) => b.totalSales - a.totalSales);
+
+  return {
+    categoryBreakdown,
+    totalArticlesSold,
+    categorySalesTotal: overallSalesTotal
+  };
+};
+
+/**
  * Imprime el ticket de corte de caja usando el perfil del negocio
  */
 export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: string = 'MI RESTAURANTE') => {
@@ -515,6 +658,44 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
   const expectedO = shift.expectedOtros || 0;
   const terminalLabel = settings.terminalName || '1 -- SERVER1';
   const printTimestamp = formatReceiptDateTime24(new Date());
+
+  // Desglose de ventas por categoría
+  const categoryData = (shift.categoryBreakdown && shift.categoryBreakdown.length > 0)
+    ? {
+        categoryBreakdown: shift.categoryBreakdown,
+        totalArticlesSold: shift.totalArticlesSold || shift.categoryBreakdown.reduce((s, c) => s + c.totalQuantity, 0),
+        categorySalesTotal: shift.categoryBreakdown.reduce((s, c) => s + c.totalSales, 0)
+      }
+    : computeShiftCategorySales(shift);
+
+  const categoriesHtml = categoryData.categoryBreakdown.length > 0
+    ? categoryData.categoryBreakdown.map((cat, idx) => `
+        <div style="margin: ${idx === 0 ? '2px 0 3px 0' : '5px 0 3px 0'};">
+          <div class="row bold" style="font-size: 10.5px;">
+            <span>• ${cat.category.toUpperCase()} (${cat.totalQuantity} arts)</span>
+            <span>$${cat.totalSales.toFixed(2)}</span>
+          </div>
+          <div class="row" style="font-size: 8.5px; color: #555; margin-bottom: 2px;">
+            <span>Participación:</span>
+            <span>${cat.percentage.toFixed(1)}%</span>
+          </div>
+          <div style="padding-left: 5px; font-size: 9px; border-left: 1px dotted #888; margin-left: 2px;">
+            ${cat.products.map(p => `
+              <div class="row" style="margin: 1px 0;">
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 68%;">
+                  ${p.quantity}x ${p.name}
+                </span>
+                <span>$${p.total.toFixed(2)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')
+    : `
+      <div class="row" style="font-size: 9.5px; color: #666; font-style: italic; margin: 3px 0;">
+        <span>Sin artículos vendidos en este turno</span>
+      </div>
+    `;
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -625,6 +806,26 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
       <div class="row bold" style="font-size: 12px; color: ${differenceTotal < 0 ? '#b91c1c' : '#047857'}; margin-top: 2px;">
         <span>DIFERENCIA TOTAL:</span>
         <span>$${differenceTotal.toFixed(2)}</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="text-center bold" style="font-size: 11px; margin: 4px 0 2px 0; letter-spacing: 0.5px;">
+        VENTAS POR CATEGORÍA
+      </div>
+      <div class="text-center" style="font-size: 8px; color: #555; margin-bottom: 3px;">
+        (Ordenado de mayor a menor venta)
+      </div>
+
+      <div class="divider"></div>
+
+      ${categoriesHtml}
+
+      <div class="divider"></div>
+
+      <div class="row bold" style="font-size: 10.5px; margin: 2px 0;">
+        <span>TOTAL ARTÍCULOS VENDIDOS:</span>
+        <span>${categoryData.totalArticlesSold} arts</span>
       </div>
 
       ${shift.notes ? `
