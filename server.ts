@@ -3,10 +3,9 @@ import path from "path";
 import fs from "fs";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { createServer as createViteServer } from "vite";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Body parser with size limits for bulk synchronizations
 app.use(express.json({ limit: "50mb" }));
@@ -315,6 +314,26 @@ function applySingleKeyUpdate(key: string, data: any) {
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
+interface ExtWebSocket extends WebSocket {
+  isAlive?: boolean;
+}
+
+// Keepalive ping-pong to prevent Railway and cloud proxies from dropping idle connections
+const pingInterval = setInterval(() => {
+  wss.clients.forEach((client) => {
+    const extWs = client as ExtWebSocket;
+    if (extWs.isAlive === false) {
+      return extWs.terminate();
+    }
+    extWs.isAlive = false;
+    extWs.ping();
+  });
+}, 25000);
+
+wss.on("close", () => {
+  clearInterval(pingInterval);
+});
+
 // Helper to broadcast to all open WS clients (optionally including/excluding sender)
 function broadcast(message: any, excludeWs?: WebSocket) {
   const payload = JSON.stringify(message);
@@ -326,7 +345,12 @@ function broadcast(message: any, excludeWs?: WebSocket) {
 }
 
 // WebSocket connection handling
-wss.on("connection", (ws) => {
+wss.on("connection", (ws: ExtWebSocket) => {
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
   console.log("Client connected via WebSocket");
   
   // Send the current complete state on connection
@@ -448,6 +472,7 @@ app.post("/api/db/reset", (req, res) => {
 // Vite middleware or production static serving
 async function setupVite() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
