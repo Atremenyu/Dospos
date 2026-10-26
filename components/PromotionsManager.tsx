@@ -664,7 +664,7 @@ export const PromotionsManager: React.FC<PromotionsManagerProps> = ({
         cancelText="Cancelar"
         type="danger"
         onConfirm={handleDelete}
-        onCancel={() => setDeleteConfirm({ isOpen: false, promoId: null })}
+        onClose={() => setDeleteConfirm({ isOpen: false, promoId: null })}
       />
     </div>
   );

@@ -1,0 +1,6 @@
+{
+  "summary":  "Plan de implementación para el nuevo componente DashboardView con gráficos Recharts en tiempo real (ventas totales, métodos de pago y productos más vendidos) y módulo interactivo de control de ventas de productos por día con selector de fecha, buscador y ordenamiento en AdminCRM.",
+  "updatedAt":  "2026-10-25T22:09:51.517146237Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

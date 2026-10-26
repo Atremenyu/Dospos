@@ -226,7 +226,7 @@ export interface StoreSettings {
 }
 
 export type ViewState = 'pos' | 'dispatch' | 'central' | 'tables' | 'login' | 'cash_audit';
-export type AdminTabType = 'overview' | 'history' | 'cash' | 'products' | 'promotions' | 'categories' | 'inventory' | 'tables' | 'users' | 'roles' | 'shifts' | 'general';
+export type AdminTabType = 'overview' | 'analytics' | 'history' | 'cash' | 'products' | 'promotions' | 'categories' | 'inventory' | 'tables' | 'users' | 'roles' | 'shifts' | 'general';
 
 export interface UserRole {
   name: string;

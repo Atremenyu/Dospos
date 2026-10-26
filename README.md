@@ -1,5 +1,10 @@
 # 🚀 DosPOS - Sistema de Punto de Venta y Gestión Gastronómica en Tiempo Real
 
+> 📖 **Documentación Disponible:**
+> - [📘 Documentación Técnica Integral y Guía para IA](./DOCUMENTACION_COMPLETA_SISTEMA.md) (Arquitectura, Componentes, Botones, Flujos Paso a Paso y Contratos).
+> - [📖 Manual de Usuario y Operación](./GUIA_USUARIO.md) (Flujo operativo diario para cajeros, meseros y cocina).
+> - [🏗️ Manual de Ingeniería](./INSTRUCCIONES.md) (Especificaciones técnicas y de infraestructura).
+
 **DosPOS** es un sistema inteligente y robusto de **Punto de Venta (POS)** y **Monitor de Cocina (KDS)** diseñado especialmente para restaurantes, eventos gastronómicos, cafeterías y bares. El sistema destaca por una interfaz visualmente impecable, transiciones fluidas de alta calidad, y una arquitectura ultra-reactiva sincronizada en tiempo real mediante **WebSockets**.
 
 ---

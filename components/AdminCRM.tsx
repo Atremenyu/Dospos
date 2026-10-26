@@ -6,6 +6,7 @@ import ProductManagement from './ProductManagement';
 import HistoryView from './HistoryView';
 import CashShiftView from './CashShiftView';
 import PromotionsManager from './PromotionsManager';
+import DashboardView from './DashboardView';
 
 interface AdminCRMProps {
   products: Product[];
@@ -93,6 +94,13 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
                         {hasOpenCashShift ? '🟢 Abierta' : '🔴 Cerrada'}
                      </p>
                   </div>
+                  <button 
+                    onClick={() => setActiveTab('analytics')}
+                    className="p-3 bg-red-600 text-white rounded-2xl shadow-xl hover:bg-red-700 transition-all flex items-center space-x-2"
+                  >
+                    <Icons.Chart size={16} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Analíticas</span>
+                  </button>
                   <button 
                     onClick={() => setActiveTab('history')}
                     className="p-3 bg-black text-white rounded-2xl shadow-xl hover:bg-slate-800 transition-all flex items-center space-x-2"
@@ -246,6 +254,19 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
           </div>
         );
 
+      case 'analytics':
+        return (
+          <div className="h-full animate-in fade-in slide-in-from-right-4 duration-500">
+            <DashboardView 
+              orders={orders}
+              products={products}
+              categories={categories}
+              settings={settings}
+              onNavigateToHistory={() => setActiveTab('history')}
+            />
+          </div>
+        );
+
       case 'promotions':
         return (
           <div className="h-full animate-in fade-in slide-in-from-right-4 duration-500">
@@ -275,6 +296,7 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
         <nav className="flex-1 flex lg:flex-col gap-2 lg:space-y-2 lg:gap-0 overflow-x-auto lg:overflow-x-visible pb-4 lg:pb-0 scrollbar-hide">
           {[
             { id: 'overview', label: 'Dashboard', icon: <Icons.Activity size={18} /> },
+            { id: 'analytics', label: 'Analíticas', icon: <Icons.Chart size={18} /> },
             { id: 'history', label: 'Ventas', icon: <Icons.TrendingUp size={18} /> },
             { id: 'cash', label: 'Cierres de Caja', icon: <Icons.Lock size={18} /> },
             { id: 'promotions', label: 'Promociones', icon: <Icons.Tag size={18} /> },

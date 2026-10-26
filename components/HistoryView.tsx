@@ -143,7 +143,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     const avgOrderValue = orderCount > 0 ? totalRevenue / orderCount : 0;
 
     // Occupancy
-    const occupiedTables = tables.filter(t => t.isOccupied).length;
+    const occupiedTables = tables.filter(t => t.status === 'occupied').length;
     const occupancyRate = tables.length > 0 ? (occupiedTables / tables.length) * 100 : 0;
 
     return { 
@@ -506,7 +506,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                     />
                     <Tooltip 
                       cursor={{ fill: '#f8fafc' }}
-                      contentStyle={{ borderRadius: '16px', border: 'none', shadow: 'none', fontWeight: 900, fontSize: '10px' }}
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: 'none', fontWeight: 900, fontSize: '10px' }}
                     />
                     <Bar dataKey="sales" radius={[0, 10, 10, 0]} barSize={20}>
                       {analyticsData.products.map((entry, index) => (
@@ -731,16 +731,16 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                             {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                               <div className="mt-1 ml-9 flex flex-wrap gap-1 mb-2">
                                 {item.selectedModifiers.map((mod, midx) => {
-                                  const isRemoval = mod.modifierName.toLowerCase().includes('sin') || 
-                                                    mod.modifierName.toLowerCase().includes('quitar') || 
-                                                    mod.modifierName.toLowerCase().includes('remover') || 
-                                                    mod.modifierName.toLowerCase().includes('no ') || 
-                                                    mod.extraPrice <= 0;
+                                  const isRemoval = (mod.modifierName || "").toLowerCase().includes('sin') || 
+                                                    (mod.modifierName || "").toLowerCase().includes('quitar') || 
+                                                    (mod.modifierName || "").toLowerCase().includes('remover') || 
+                                                    (mod.modifierName || "").toLowerCase().includes('no ') || 
+                                                    (mod.extraPrice || 0) <= 0;
                                   return (
                                     <span key={`${mod.modifierId || mod.modifierName}-${midx}`} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter border ${
                                       isRemoval ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-600 border-slate-200'
                                     }`}>
-                                      {isRemoval ? '' : '+ '}{mod.modifierName}
+                                      {isRemoval ? '' : '+ '}{mod.modifierName || "Extra"}
                                     </span>
                                   );
                                 })}

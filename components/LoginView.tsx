@@ -15,27 +15,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
   const [error, setError] = useState(false);
 
   const handlePinInput = useCallback((digit: string) => {
-    setPin(prev => {
-      if (prev.length >= 4) return prev;
-      const newPin = prev + digit;
-      
-      if (newPin.length === 4) {
-        if (selectedUser && newPin === selectedUser.pin) {
-          onLogin(selectedUser);
-        } else {
-          setError(true);
-          setTimeout(() => {
-            setPin('');
-            setError(false);
-          }, 1000);
-        }
+    if (pin.length >= 4) return;
+    const newPin = pin + digit;
+    setPin(newPin);
+
+    if (newPin.length === 4) {
+      if (selectedUser && newPin === selectedUser.pin) {
+        onLogin(selectedUser);
+      } else {
+        setError(true);
+        setTimeout(() => {
+          setPin('');
+          setError(false);
+        }, 1000);
       }
-      return newPin;
-    });
-  }, [selectedUser, onLogin]);
+    }
+  }, [pin, selectedUser, onLogin]);
 
   const handleBackspace = useCallback(() => {
     setPin(prev => prev.slice(0, -1));
+    setError(false);
   }, []);
 
   useEffect(() => {

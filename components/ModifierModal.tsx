@@ -27,6 +27,7 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
     return initial;
   });
   const [note, setNote] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const calculateTotalExtras = useMemo(() => {
     let total = 0;
@@ -34,14 +35,15 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
       if (!activeGroups[group.id]) return;
       const selectedIds = selections[group.id] || [];
       selectedIds.forEach(modId => {
-        const modifier = group.modifiers.find(m => m.id === modId);
-        if (modifier) total += modifier.extraPrice;
+        const modifier = (group.modifiers || []).find(m => m && m.id === modId);
+        if (modifier) total += (modifier.extraPrice || 0);
       });
     });
     return total;
   }, [product, selections, activeGroups]);
 
   const toggleModifier = (groupId: string, modifier: Modifier, isRequired: boolean, maxSelection: number) => {
+    setValidationError(null);
     setSelections(prev => {
       const currentGroupSelections = prev[groupId] || [];
       
@@ -69,12 +71,12 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
 
   const handleConfirm = () => {
     // Validate required groups
-    const missingRequired = product.modifierGroups?.some(group => {
-      return group.isRequired && (!selections[group.id] || selections[group.id].length < group.minSelection);
+    const missingGroup = product.modifierGroups?.find(group => {
+      return group.isRequired && (!selections[group.id] || selections[group.id].length < (group.minSelection || 1));
     });
 
-    if (missingRequired) {
-      alert('Por favor completa las selecciones obligatorias');
+    if (missingGroup) {
+      setValidationError(`Por favor completa la selección obligatoria de "${missingGroup.name}".`);
       return;
     }
 
@@ -83,12 +85,12 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
       if (!activeGroups[group.id]) return;
       const selectedIds = selections[group.id] || [];
       selectedIds.forEach(modId => {
-        const modifier = group.modifiers.find(m => m.id === modId);
+        const modifier = (group.modifiers || []).find(m => m && m.id === modId);
         if (modifier) {
           finalModifiers.push({
             modifierId: modifier.id,
-            modifierName: modifier.name,
-            extraPrice: modifier.extraPrice
+            modifierName: modifier.name || 'Extra',
+            extraPrice: modifier.extraPrice || 0
           });
         }
       });
@@ -195,7 +197,7 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
                     className="overflow-hidden"
                   >
                     <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {group.modifiers.map(modifier => {
+                      {(group.modifiers || []).map(modifier => {
                         const isSelected = selections[group.id]?.includes(modifier.id);
                         return (
                           <button
@@ -251,6 +253,12 @@ const ModifierModal: React.FC<ModifierModalProps> = ({ product, onClose, onConfi
 
         {/* Footer */}
         <div className="p-8 border-t border-slate-100 bg-slate-50/50">
+          {validationError && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-xl text-xs font-bold flex items-center space-x-2 animate-shake">
+              <Icons.AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+              <span>{validationError}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-6 px-2">
             <div>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resumen de Cargo</p>

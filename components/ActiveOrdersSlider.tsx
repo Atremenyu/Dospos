@@ -336,16 +336,16 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                              {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                                <div className="mt-1 ml-6 flex flex-wrap gap-1">
                                  {item.selectedModifiers.map((mod, midx) => {
-                                   const isRemoval = mod.modifierName.toLowerCase().includes('sin') || 
-                                                     mod.modifierName.toLowerCase().includes('quitar') || 
-                                                     mod.modifierName.toLowerCase().includes('remover') || 
-                                                     mod.modifierName.toLowerCase().includes('no ') || 
-                                                     mod.extraPrice <= 0;
+                                   const isRemoval = (mod.modifierName || "").toLowerCase().includes('sin') || 
+                                                     (mod.modifierName || "").toLowerCase().includes('quitar') || 
+                                                     (mod.modifierName || "").toLowerCase().includes('remover') || 
+                                                     (mod.modifierName || "").toLowerCase().includes('no ') || 
+                                                     (mod.extraPrice || 0) <= 0;
                                    return (
                                      <span key={`${mod.modifierId || mod.modifierName}-${midx}`} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-tighter border ${
                                        isRemoval ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-100 text-slate-600 border-slate-200'
                                      }`}>
-                                       {isRemoval ? '' : '+ '}{mod.modifierName}
+                                       {isRemoval ? '' : '+ '}{mod.modifierName || "Extra"}
                                      </span>
                                    );
                                  })}
@@ -721,10 +721,10 @@ const ActiveOrdersSlider: React.FC<ActiveOrdersSliderProps> = ({
                             </span>
                           </div>
                         ))}
-                        {order.discount && order.discount > 0 ? (
+                        {(order.discountAmount || 0) > 0 ? (
                           <div className="flex justify-between items-center text-emerald-600 font-bold pt-1">
-                            <span>Descuento ({order.promotionName || 'Promo'})</span>
-                            <span>-${order.discount.toLocaleString()}</span>
+                            <span>Descuento ({order.discountReason || 'Promo'})</span>
+                            <span>-${(order.discountAmount || 0).toLocaleString()}</span>
                           </div>
                         ) : null}
                       </div>

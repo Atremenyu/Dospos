@@ -11,8 +11,11 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
-# Volume for persistent SQLite/JSON database storage (Mounted via Railway service settings if needed)
+# Ensure directories for Railway volume mounts exist
+RUN mkdir -p /app/data /data
 EXPOSE 3000
-CMD ["npm", "start"]
+# Run node directly so SIGTERM/SIGINT are handled gracefully without npm errors
+CMD ["node", "dist/server.cjs"]
+

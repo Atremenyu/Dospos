@@ -569,60 +569,58 @@ const App: React.FC = () => {
   };
 
   const splitOrder = (orderId: string, splitQuantities: Record<number, number>, payment: PaymentMethod, tip: number = 0) => {
-    setOrders(prev => {
-      const order = prev.find(o => o.id === orderId);
-      if (!order) return prev;
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
 
-      let currentPaidTotal = 0;
-      const updatedItems = order.items.map((item, idx) => {
-        const qtyToPay = splitQuantities[idx] || 0;
-        const currentPaid = item.paidQuantity || 0;
-        const newPaid = currentPaid + qtyToPay;
-        currentPaidTotal += item.price * qtyToPay;
-        return { ...item, paidQuantity: newPaid };
-      });
-
-      const newPayment: PaymentRecord = {
-        id: Math.random().toString(36).substr(2, 9),
-        method: payment,
-        amount: currentPaidTotal,
-        tip: tip,
-        timestamp: new Date().toISOString()
-      };
-
-      const payments = [...(order.payments || []), newPayment];
-      
-      const allPaid = updatedItems.every(item => 
-        (item.paidQuantity || 0) >= item.quantity
-      );
-
-      if (allPaid) {
-        if (order.type === 'dine-in' && order.table) {
-          setTables(prevTables => prevTables.map(t => 
-            t.name === order.table ? { ...t, isOccupied: false } : t
-          ));
-        }
-      }
-
-      return prev.map(o => o.id === orderId ? {
-        ...o,
-        items: updatedItems,
-        isPaid: allPaid,
-        payment: allPaid ? payment : o.payment,
-        status: allPaid ? 'delivered' : o.status,
-        tip: (o.tip || 0) + tip,
-        payments,
-        updatedAt: new Date().toISOString()
-      } : o);
+    let currentPaidTotal = 0;
+    const updatedItems = order.items.map((item, idx) => {
+      const qtyToPay = splitQuantities[idx] || 0;
+      const currentPaid = item.paidQuantity || 0;
+      const newPaid = currentPaid + qtyToPay;
+      currentPaidTotal += item.price * qtyToPay;
+      return { ...item, paidQuantity: newPaid };
     });
+
+    const newPayment: PaymentRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      method: payment,
+      amount: currentPaidTotal,
+      tip: tip,
+      timestamp: new Date().toISOString()
+    };
+
+    const payments = [...(order.payments || []), newPayment];
+    
+    const allPaid = updatedItems.every(item => 
+      (item.paidQuantity || 0) >= item.quantity
+    );
+
+    if (allPaid && order.type === 'dine-in' && order.table) {
+      setTables(prevTables => prevTables.map(t => 
+        t.name === order.table ? { ...t, isOccupied: false } : t
+      ));
+    }
+
+    setOrders(prev => prev.map(o => o.id === orderId ? {
+      ...o,
+      items: updatedItems,
+      isPaid: allPaid,
+      payment: allPaid ? payment : o.payment,
+      status: allPaid ? 'delivered' : o.status,
+      tip: (o.tip || 0) + tip,
+      payments,
+      updatedAt: new Date().toISOString()
+    } : o));
   };
 
   const currentUserRole = useMemo(() => 
-    roles.find(r => r.name === currentUser?.role),
+    roles.find(r => r.name?.toLowerCase() === currentUser?.role?.toLowerCase()),
   [currentUser, roles]);
 
   const canAccessView = (v: ViewState) => {
-    if (!currentUserRole) return false;
+    if (!currentUser) return false;
+    if (currentUser.role?.toLowerCase() === 'admin') return true;
+    if (!currentUserRole) return true;
     return currentUserRole.permissions.includes(v);
   };
 
@@ -631,11 +629,12 @@ const App: React.FC = () => {
     setRoles(prevRoles => {
       let needsMigration = false;
       const updatedRoles = prevRoles.map(role => {
-        if (role.permissions.includes('history') || role.permissions.includes('settings')) {
+        const perms = role.permissions as string[];
+        if (perms.includes('history') || perms.includes('settings')) {
           needsMigration = true;
           return {
             ...role,
-            permissions: Array.from(new Set(role.permissions.filter(p => p !== 'history' && p !== 'settings').concat('central' as ViewState)))
+            permissions: Array.from(new Set(perms.filter(p => p !== 'history' && p !== 'settings').concat('central'))) as ViewState[]
           };
         }
         return role;
@@ -909,7 +908,7 @@ const App: React.FC = () => {
 
     // Modifiers recipe
     selectedModifiers?.forEach(sm => {
-      const modifier = product.modifierGroups?.flatMap(g => g.modifiers).find(m => m.id === sm.modifierId);
+      const modifier = (product.modifierGroups || []).flatMap(g => g.modifiers || []).find(m => m && m.id === sm.modifierId);
       modifier?.recipe?.forEach(ri => {
         required[ri.ingredientId] = (required[ri.ingredientId] || 0) + (ri.quantity * quantity);
       });
@@ -953,9 +952,12 @@ const App: React.FC = () => {
 
   const addToCart = (product: Product, selectedModifiers?: SelectedModifier[], note?: string, isCombo?: boolean, selectedComboOptions?: ComboOption[]) => {
     if (!hasOpenCashShift && (currentUser?.role === 'Admin' || currentUser?.role === 'Caja')) {
-      alert('Debes abrir la caja antes de tomar pedidos.');
-      // Switch view to cash audit if possible or show modal
-      setView('history');
+      setActiveNotification({
+        id: Date.now().toString(),
+        message: 'Debes abrir el turno de caja antes de tomar pedidos.',
+        type: 'warning'
+      });
+      setShowOpeningModal(true);
       return;
     }
     
@@ -1041,7 +1043,7 @@ const App: React.FC = () => {
 
         // Selected modifiers recipes
         item.selectedModifiers?.forEach(sm => {
-          const modifier = originalProduct?.modifierGroups?.flatMap(g => g.modifiers).find(m => m.id === sm.modifierId);
+          const modifier = (originalProduct?.modifierGroups || []).flatMap(g => g.modifiers || []).find(m => m && m.id === sm.modifierId);
           if (modifier?.recipe) {
             modifier.recipe.forEach(ri => {
               const ingIndex = newIngredients.findIndex(i => i.id === ri.ingredientId);
@@ -1160,7 +1162,7 @@ const App: React.FC = () => {
       // Calculate sequential order number for today
       const todayStr = new Date().toDateString();
       const todayOrders = orders.filter(o => new Date(o.date).toDateString() === todayStr);
-      const maxTodayNum = todayOrders.reduce((max, o) => Math.max(max, o.orderNumber || 0), 0);
+      const maxTodayNum = todayOrders.reduce((max, o) => Math.max(max, Number(o.orderNumber) || 0), 0);
       const nextOrderNumber = (maxTodayNum % 99) + 1;
 
       const newOrder: Order = {
@@ -1406,55 +1408,53 @@ const App: React.FC = () => {
   };
 
   const recordPayment = (orderId: string, amount: number, method: PaymentMethod, tip: number = 0, cashReceived?: number) => {
-    setOrders(prev => {
-      const orderToPay = prev.find(o => o.id === orderId);
-      if (!orderToPay) return prev;
+    const orderToPay = orders.find(o => o.id === orderId);
+    if (!orderToPay) return;
 
-      const received = cashReceived !== undefined ? cashReceived : amount + tip;
-      const change = Math.max(0, received - (amount + tip));
+    const received = cashReceived !== undefined ? cashReceived : amount + tip;
+    const change = Math.max(0, received - (amount + tip));
 
-      const newPayment: PaymentRecord = {
-        id: Math.random().toString(36).substr(2, 9),
-        amount,
-        method,
-        tip,
-        receivedAmount: received,
-        change,
-        timestamp: new Date().toISOString()
-      };
+    const newPayment: PaymentRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      amount,
+      method,
+      tip,
+      receivedAmount: received,
+      change,
+      timestamp: new Date().toISOString()
+    };
 
-      const updatedPayments = [...(orderToPay.payments || []), newPayment];
-      const totalPaid = updatedPayments.reduce((acc, p) => acc + p.amount, 0);
-      const allPaid = totalPaid >= orderToPay.total;
+    const updatedPayments = [...(orderToPay.payments || []), newPayment];
+    const totalPaid = updatedPayments.reduce((acc, p) => acc + p.amount, 0);
+    const allPaid = totalPaid >= orderToPay.total;
 
-      if (allPaid && orderToPay.type === 'dine-in' && orderToPay.table) {
-        setTables(prevTables => prevTables.map(t => 
-          t.name === orderToPay.table ? { ...t, isOccupied: false } : t
-        ));
+    if (allPaid && orderToPay.type === 'dine-in' && orderToPay.table) {
+      setTables(prevTables => prevTables.map(t => 
+        t.name === orderToPay.table ? { ...t, isOccupied: false } : t
+      ));
+    }
+
+    setOrders(prev => prev.map(o => {
+      if (o.id === orderId) {
+        return { 
+          ...o, 
+          isPaid: allPaid, 
+          payment: allPaid ? method : o.payment, 
+          status: allPaid ? 'delivered' : o.status,
+          payments: updatedPayments,
+          tip: (o.tip || 0) + tip,
+          closedAt: allPaid ? new Date().toISOString() : o.closedAt,
+          receivedAmount: received,
+          changeAmount: change,
+          items: o.items.map(item => ({ 
+            ...item, 
+            paidQuantity: allPaid ? item.quantity : (item.paidQuantity || 0) + (item.quantity * (amount / o.total))
+          })),
+          updatedAt: new Date().toISOString()
+        };
       }
-
-      return prev.map(o => {
-        if (o.id === orderId) {
-          return { 
-            ...o, 
-            isPaid: allPaid, 
-            payment: allPaid ? method : o.payment, 
-            status: allPaid ? 'delivered' : o.status,
-            payments: updatedPayments,
-            tip: (o.tip || 0) + tip,
-            closedAt: allPaid ? new Date().toISOString() : o.closedAt,
-            receivedAmount: received,
-            changeAmount: change,
-            items: o.items.map(item => ({ 
-              ...item, 
-              paidQuantity: allPaid ? item.quantity : (item.paidQuantity || 0) + (item.quantity * (amount / o.total))
-            })),
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return o;
-      });
-    });
+      return o;
+    }));
   };
 
   const payOrder = (orderId: string, payment: PaymentMethod, tip: number = 0, amount?: number, cashReceived?: number) => {
@@ -1790,6 +1790,19 @@ const App: React.FC = () => {
               users={users}
               roles={roles}
             />
+          )}
+          {!['pos', 'central', 'dispatch', 'tables'].includes(view) && (
+            <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-900 text-white min-h-[500px]">
+              <Icons.AlertTriangle className="w-16 h-16 text-amber-400 mb-4" />
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">Vista no disponible ({view})</h3>
+              <p className="text-sm text-slate-400 max-w-md mb-6">Regresando al Punto de Venta principal para continuar operando...</p>
+              <button 
+                onClick={() => setView('pos')} 
+                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black uppercase text-xs tracking-wider transition shadow-lg shadow-red-900/40"
+              >
+                Ir a Punto de Venta
+              </button>
+            </div>
           )}
         </div>
       </main>

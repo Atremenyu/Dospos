@@ -1192,18 +1192,19 @@ const POSView: React.FC<POSViewProps> = ({
                                 {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                                   <div className="mt-1 flex flex-wrap gap-1">
                                     {item.selectedModifiers.map((mod, midx) => {
-                                      const isRemoval = mod.modifierName.toLowerCase().includes('sin') || 
-                                                        mod.modifierName.toLowerCase().includes('quitar') || 
-                                                        mod.modifierName.toLowerCase().includes('remover') || 
-                                                        mod.modifierName.toLowerCase().includes('no ') || 
-                                                        mod.extraPrice <= 0;
+                                      const modName = mod.modifierName || '';
+                                      const isRemoval = modName.toLowerCase().includes('sin') || 
+                                                        modName.toLowerCase().includes('quitar') || 
+                                                        modName.toLowerCase().includes('remover') || 
+                                                        modName.toLowerCase().includes('no ') || 
+                                                        (mod.extraPrice || 0) <= 0;
                                       return (
                                         <span key={midx} className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter border ${
                                           isRemoval 
                                             ? 'bg-rose-50 text-rose-700 border-rose-100' 
                                             : 'bg-slate-100 text-slate-600 border-slate-200'
                                         }`}>
-                                          {isRemoval ? '' : '+ '}{mod.modifierName}
+                                          {isRemoval ? '' : '+ '}{modName || 'Extra'}
                                         </span>
                                       );
                                     })}
