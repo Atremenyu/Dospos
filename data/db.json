@@ -406,7 +406,20 @@
       "role": "Admin"
     }
   ],
-  "shifts": [],
+  "shifts": [
+    {
+      "id": "1793585994140",
+      "userId": "admin-1",
+      "userName": "Admin",
+      "startTime": "2026-11-02T02:19:54.140Z"
+    },
+    {
+      "id": "1793585994258",
+      "userId": "admin-1",
+      "userName": "Admin",
+      "startTime": "2026-11-02T02:19:54.258Z"
+    }
+  ],
   "cashShifts": [
     {
       "id": "1788882170546",
@@ -491,5 +504,9 @@
       "isActive": true,
       "updatedAt": "2026-09-10T00:27:16.738Z"
     }
-  ]
+  ],
+  "isInitialized": true,
+  "healthCheckPing": {
+    "testedAt": "2026-11-01"
+  }
 }

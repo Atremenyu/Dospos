@@ -53,6 +53,7 @@ const App: React.FC = () => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showOpeningModal, setShowOpeningModal] = useState(false);
   const [showClosingModal, setShowClosingModal] = useState(false);
+  const [showShiftBlockModal, setShowShiftBlockModal] = useState(false);
   const [adminView, setAdminView] = useState<AdminTabType>('overview');
   const socketRef = useRef<WebSocket | null>(null);
   const prevOrdersRef = useRef<Order[]>([]);
@@ -224,6 +225,26 @@ const App: React.FC = () => {
       }));
       setOrders(migratedOrders);
       setUsers(savedUsers);
+
+      // Ensure active session has a tracked shift
+      if (currentUser) {
+        const activeUserShift = savedShifts.find((s: Shift) => s.userId === currentUser.id && !s.endTime);
+        if (!activeUserShift) {
+          const autoShift: Shift = {
+            id: Date.now().toString(),
+            userId: currentUser.id,
+            userName: currentUser.name,
+            startTime: new Date().toISOString()
+          };
+          savedShifts.unshift(autoShift);
+          setCurrentShiftId(autoShift.id);
+          localStorage.setItem("dospos_current_shift_id", autoShift.id);
+        } else {
+          setCurrentShiftId(activeUserShift.id);
+          localStorage.setItem("dospos_current_shift_id", activeUserShift.id);
+        }
+      }
+
       setShifts(savedShifts);
       setCashShifts(savedCashShifts);
       setRoles(savedRoles.length > 0 ? savedRoles : ROLES);
@@ -382,18 +403,29 @@ const App: React.FC = () => {
 
     fetchInitialState();
 
+    let reconnectAttempts = 0;
+
     const connectWebSocket = () => {
       if (isDisposed) return;
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}`;
-      console.log("Intentando conectar a WebSocket:", wsUrl);
+      if (reconnectAttempts === 0) {
+        console.log("Conectando sincronización en tiempo real:", wsUrl);
+      }
 
-      const socket = new WebSocket(wsUrl);
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(wsUrl);
+      } catch (err) {
+        // Fallback gracefully to polling if WebSocket constructor fails
+        return;
+      }
       socketRef.current = socket;
 
       socket.onopen = () => {
-        console.log("¡Conexión WebSocket establecida con éxito!");
+        reconnectAttempts = 0;
+        console.log("¡Conexión de sincronización establecida con éxito!");
         storage.registerSocket(socket);
       };
 
@@ -449,17 +481,24 @@ const App: React.FC = () => {
       };
 
       socket.onclose = () => {
-        console.log("Conexión WebSocket cerrada. Reintentando en 3 segundos...");
         storage.registerSocket(null);
         if (!isDisposed) {
-          reconnectTimeout = setTimeout(connectWebSocket, 3000);
+          reconnectAttempts++;
+          // Intelligent backoff: 3s -> 4.5s -> 6.75s -> 10s ... capped at 30s
+          const backoffDelay = Math.min(3000 * Math.pow(1.5, Math.min(reconnectAttempts, 6)), 30000);
+          if (reconnectAttempts <= 2) {
+            console.log(`Reintentando sincronización WebSocket en ${(backoffDelay / 1000).toFixed(1)}s...`);
+          }
+          reconnectTimeout = setTimeout(connectWebSocket, backoffDelay);
         }
       };
 
-      socket.onerror = (err) => {
-        console.warn("Error de conexión en WebSocket:", err);
+      socket.onerror = () => {
+        // Quiet failure to prevent flooding console on static hosts like Netlify
         storage.registerSocket(null);
-        socket.close();
+        try {
+          socket.close();
+        } catch {}
       };
     };
 
@@ -480,17 +519,62 @@ const App: React.FC = () => {
         setTables((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_tablas", JSON.stringify(data));
       } else if (key === "orders") {
-        setOrders((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
-        localStorage.setItem("dospos_ordenes", JSON.stringify(data));
+        if (Array.isArray(data)) {
+          setOrders((prev) => {
+            const orderMap = new Map<string, Order>();
+            // Keep local pending orders that might not be on server yet
+            prev.forEach((o: Order) => {
+              if (o && o.id) orderMap.set(o.id, o);
+            });
+            // Overwrite with incoming server state where available
+            data.forEach((o: Order) => {
+              if (o && o.id) orderMap.set(o.id, o);
+            });
+            const merged = Array.from(orderMap.values()).sort((a, b) => 
+              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+            );
+            localStorage.setItem("dospos_ordenes", JSON.stringify(merged));
+            return merged;
+          });
+        }
       } else if (key === "users") {
         setUsers((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_usuarios", JSON.stringify(data));
       } else if (key === "shifts") {
-        setShifts((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
-        localStorage.setItem("dospos_turnos", JSON.stringify(data));
+        if (Array.isArray(data)) {
+          setShifts((prev) => {
+            const shiftMap = new Map<string, Shift>();
+            prev.forEach(s => { if (s && s.id) shiftMap.set(s.id, s); });
+            data.forEach((s: Shift) => { if (s && s.id) shiftMap.set(s.id, s); });
+            const merged = Array.from(shiftMap.values()).sort((a, b) => 
+              new Date(b.startTime || 0).getTime() - new Date(a.startTime || 0).getTime()
+            );
+            localStorage.setItem("dospos_turnos", JSON.stringify(merged));
+            return merged;
+          });
+        }
       } else if (key === "cashShifts") {
-        setCashShifts((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
-        localStorage.setItem("dospos_turnos_caja", JSON.stringify(data));
+        if (Array.isArray(data)) {
+          setCashShifts((prev) => {
+            const shiftMap = new Map<string, CashShift>();
+            prev.forEach(s => { if (s && s.id) shiftMap.set(s.id, s); });
+            data.forEach((s: CashShift) => {
+              if (s && s.id) {
+                const existing = shiftMap.get(s.id);
+                // If locally closed, never revert to open
+                if (existing && existing.status === 'closed' && s.status === 'open') {
+                  return;
+                }
+                shiftMap.set(s.id, s);
+              }
+            });
+            const merged = Array.from(shiftMap.values()).sort((a, b) => 
+              new Date(b.openingTime || 0).getTime() - new Date(a.openingTime || 0).getTime()
+            );
+            localStorage.setItem("dospos_turnos_caja", JSON.stringify(merged));
+            return merged;
+          });
+        }
       } else if (key === "roles") {
         setRoles((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_roles", JSON.stringify(data));
@@ -568,7 +652,70 @@ const App: React.FC = () => {
     console.log("Base de datos restaurada correctamente en el estado global.");
   };
 
+  const staleOpenCashShift = useMemo(() => {
+    const open = cashShifts.find(s => s.status === 'open');
+    if (!open) return null;
+    const openingDate = new Date(open.openingTime);
+    const today = new Date();
+    // Identificar turnos abiertos en días de calendario anteriores
+    const isPastCalendarDay = 
+      openingDate.getFullYear() !== today.getFullYear() ||
+      openingDate.getMonth() !== today.getMonth() ||
+      openingDate.getDate() !== today.getDate();
+    return isPastCalendarDay ? open : null;
+  }, [cashShifts]);
+
+  const hasOpenCashShift = useMemo(() => {
+    // Si hay un turno del día anterior sin cerrar, no hay turno válido activo para hoy
+    if (staleOpenCashShift) return false;
+    return cashShifts.some(s => {
+      if (s.status !== 'open') return false;
+      const openingDate = new Date(s.openingTime);
+      const today = new Date();
+      return (
+        openingDate.getFullYear() === today.getFullYear() &&
+        openingDate.getMonth() === today.getMonth() &&
+        openingDate.getDate() === today.getDate()
+      );
+    });
+  }, [cashShifts, staleOpenCashShift]);
+
+  const currentOpenCashShift = useMemo(() => {
+    if (staleOpenCashShift) return null;
+    return cashShifts.find(s => {
+      if (s.status !== 'open') return false;
+      const openingDate = new Date(s.openingTime);
+      const today = new Date();
+      return (
+        openingDate.getFullYear() === today.getFullYear() &&
+        openingDate.getMonth() === today.getMonth() &&
+        openingDate.getDate() === today.getDate()
+      );
+    }) || null;
+  }, [cashShifts, staleOpenCashShift]);
+
+  const activeShiftForClosing = useMemo(() => {
+    return staleOpenCashShift || currentOpenCashShift || cashShifts.find(s => s.status === 'open') || null;
+  }, [staleOpenCashShift, currentOpenCashShift, cashShifts]);
+
+  const isShiftOpenValidToday = useMemo(() => {
+    if (staleOpenCashShift) return false;
+    return hasOpenCashShift;
+  }, [staleOpenCashShift, hasOpenCashShift]);
+
+  const requireOpenShiftOrBlock = (): boolean => {
+    if (!isShiftOpenValidToday) {
+      setShowShiftBlockModal(true);
+      return false;
+    }
+    return true;
+  };
+
   const splitOrder = (orderId: string, splitQuantities: Record<number, number>, payment: PaymentMethod, tip: number = 0) => {
+    if (!requireOpenShiftOrBlock()) {
+      return;
+    }
+
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
@@ -595,18 +742,11 @@ const App: React.FC = () => {
       (item.paidQuantity || 0) >= item.quantity
     );
 
-    if (allPaid && order.type === 'dine-in' && order.table) {
-      setTables(prevTables => prevTables.map(t => 
-        t.name === order.table ? { ...t, isOccupied: false } : t
-      ));
-    }
-
     setOrders(prev => prev.map(o => o.id === orderId ? {
       ...o,
       items: updatedItems,
       isPaid: allPaid,
       payment: allPaid ? payment : o.payment,
-      status: allPaid ? 'delivered' : o.status,
       tip: (o.tip || 0) + tip,
       payments,
       updatedAt: new Date().toISOString()
@@ -664,10 +804,34 @@ const App: React.FC = () => {
       setView(role.permissions[0]);
     }
 
-    // Automatically check and prompt for box opening if it is closed and user is Admin or Caja
-    const hasOpenShift = cashShifts.some(s => s.status === 'open');
-    if (!hasOpenShift && (user.role === 'Admin' || user.role === 'Caja')) {
-      setShowOpeningModal(true);
+    // Automatically check and prompt for box opening or previous day shift closing
+    const staleShift = cashShifts.find(s => {
+      if (s.status !== 'open') return false;
+      const openingDate = new Date(s.openingTime);
+      const today = new Date();
+      return (
+        openingDate.getFullYear() !== today.getFullYear() ||
+        openingDate.getMonth() !== today.getMonth() ||
+        openingDate.getDate() !== today.getDate()
+      );
+    });
+
+    if (staleShift && (user.role === 'Admin' || user.role === 'Caja')) {
+      setShowClosingModal(true);
+    } else {
+      const hasTodayShift = cashShifts.some(s => {
+        if (s.status !== 'open') return false;
+        const openingDate = new Date(s.openingTime);
+        const today = new Date();
+        return (
+          openingDate.getFullYear() === today.getFullYear() &&
+          openingDate.getMonth() === today.getMonth() &&
+          openingDate.getDate() === today.getDate()
+        );
+      });
+      if (!hasTodayShift && (user.role === 'Admin' || user.role === 'Caja')) {
+        setShowOpeningModal(true);
+      }
     }
   };
 
@@ -690,91 +854,6 @@ const App: React.FC = () => {
     setView('login');
     setShowLogoutConfirm(false);
   };
-
-  const handleOpenCashShift = (initialFund: number) => {
-    if (!currentUser) return;
-    // Guard against opening a duplicate cash shift if one is already open
-    const existingOpen = cashShifts.find(s => s.status === 'open');
-    if (existingOpen) {
-      console.warn("Ya existe un turno de caja abierto:", existingOpen.id);
-      setView('pos');
-      return;
-    }
-
-    const newShift: CashShift = {
-      id: generateSecureId('csh'),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      openingTime: new Date().toISOString(),
-      initialFund,
-      status: 'open',
-      updatedAt: new Date().toISOString()
-    };
-    setCashShifts(prev => [...prev, newShift]);
-    setView('pos');
-  };
-
-  const handleCloseCashShift = (
-    actualCash: number, 
-    actualTarjeta: number, 
-    actualTransferencia: number, 
-    notes?: string
-  ) => {
-    const openShift = cashShifts.find(s => s.status === 'open');
-    if (!openShift) {
-      console.error("No se encontró ningún turno de caja abierto.");
-      return;
-    }
-
-    const stats = getCashShiftStats(openShift);
-    const actualAmount = actualCash + actualTarjeta + actualTransferencia;
-    
-    // Calcular desglose de ventas por categoría
-    const categoryData = computeShiftCategorySales(openShift, orders, products);
-
-    const closedShift: CashShift = {
-      ...openShift,
-      closingTime: new Date().toISOString(),
-      expectedAmount: stats.expectedAmount,
-      actualAmount,
-      difference: actualAmount - stats.expectedAmount,
-      status: 'closed',
-      notes,
-      expectedCash: stats.expectedCash,
-      actualCash,
-      differenceCash: actualCash - stats.expectedCash,
-      expectedTarjeta: stats.expectedTarjeta,
-      actualTarjeta,
-      differenceTarjeta: actualTarjeta - stats.expectedTarjeta,
-      expectedTransferencia: stats.expectedTransferencia,
-      actualTransferencia,
-      differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
-      expectedOtros: stats.expectedOtros,
-      expectedCourtesy: stats.expectedCourtesy,
-      categoryBreakdown: categoryData.categoryBreakdown,
-      totalArticlesSold: categoryData.totalArticlesSold,
-      updatedAt: new Date().toISOString()
-    };
-
-    setCashShifts(prev => prev.map(s => s.id === openShift.id ? closedShift : s));
-    setShowClosingModal(false);
-
-    // Mandar a imprimir el ticket térmico del corte de caja inmediatamente con el objeto calculado
-    printCashShiftTicketHTML(closedShift, settings.name || 'DOSPOS');
-  };
-
-  const staleOpenCashShift = useMemo(() => {
-    const open = cashShifts.find(s => s.status === 'open');
-    if (!open) return null;
-    const openingDate = new Date(open.openingTime);
-    const today = new Date();
-    // Identificar turnos abiertos en días de calendario anteriores
-    const isPastCalendarDay = 
-      openingDate.getFullYear() !== today.getFullYear() ||
-      openingDate.getMonth() !== today.getMonth() ||
-      openingDate.getDate() !== today.getDate();
-    return isPastCalendarDay ? open : null;
-  }, [cashShifts]);
 
   const getCashShiftStats = (shift: CashShift, cutoffOverride?: number) => {
     let salesTotal = 0;
@@ -806,6 +885,23 @@ const App: React.FC = () => {
       }
     }
 
+    // Calcular inicio efectivo del turno:
+    // Captura ventas del mismo día calendario anteriores a la apertura formal sin robar ventas de turnos cerrados previos
+    const shiftDate = new Date(shift.openingTime);
+    const startOfShiftDay = new Date(shiftDate.getFullYear(), shiftDate.getMonth(), shiftDate.getDate(), 0, 0, 0, 0).getTime();
+    
+    const previousClosedShifts = cashShifts.filter(s => 
+      s.id !== shift.id && 
+      s.status === 'closed' && 
+      new Date(s.closingTime || s.openingTime).getTime() <= shiftOpeningTime
+    ).sort((a, b) => new Date(b.closingTime || b.openingTime).getTime() - new Date(a.closingTime || a.openingTime).getTime());
+    
+    const lastClosingTime = previousClosedShifts.length > 0 && previousClosedShifts[0].closingTime
+      ? new Date(previousClosedShifts[0].closingTime).getTime()
+      : 0;
+
+    const effectiveStartTime = Math.min(shiftOpeningTime, Math.max(lastClosingTime, startOfShiftDay));
+
     orders.forEach(o => {
       // Excluir órdenes canceladas del corte de caja
       if (o.status === 'cancelled') return;
@@ -814,7 +910,7 @@ const App: React.FC = () => {
         // Si hay registros de pagos explícitos (pagos divididos o actualizados), procesar cada pago
         o.payments.forEach(p => {
           const paymentTime = new Date(p.timestamp).getTime();
-          const inShift = paymentTime >= shiftOpeningTime && paymentTime <= shiftClosingTime;
+          const inShift = paymentTime >= effectiveStartTime && paymentTime <= shiftClosingTime;
           
           if (inShift) {
             const amount = p.amount;
@@ -838,7 +934,7 @@ const App: React.FC = () => {
       } else if (o.isPaid) {
         // Si el pedido está pagado pero no tiene un arreglo de pagos explícito (pedidos anteriores o de legado)
         const orderTime = new Date(o.date).getTime();
-        const inShift = orderTime >= shiftOpeningTime && orderTime <= shiftClosingTime;
+        const inShift = orderTime >= effectiveStartTime && orderTime <= shiftClosingTime;
         
         if (inShift) {
           const amount = o.total;
@@ -886,17 +982,110 @@ const App: React.FC = () => {
     };
   };
 
+  const handleOpenCashShift = (initialFund: number) => {
+    if (!currentUser) return;
+    if (staleOpenCashShift) {
+      alert("Existe un turno anterior sin cerrar. Realiza el corte del turno anterior antes de abrir la caja hoy.");
+      setShowClosingModal(true);
+      return;
+    }
+
+    const existingOpenToday = cashShifts.find(s => {
+      if (s.status !== 'open') return false;
+      const openingDate = new Date(s.openingTime);
+      const today = new Date();
+      return (
+        openingDate.getFullYear() === today.getFullYear() &&
+        openingDate.getMonth() === today.getMonth() &&
+        openingDate.getDate() === today.getDate()
+      );
+    });
+    if (existingOpenToday) {
+      console.warn("Ya existe un turno de caja abierto hoy:", existingOpenToday.id);
+      setView('pos');
+      return;
+    }
+
+    const newShift: CashShift = {
+      id: generateSecureId('csh'),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      openingTime: new Date().toISOString(),
+      initialFund,
+      status: 'open',
+      updatedAt: new Date().toISOString()
+    };
+    setCashShifts(prev => [...prev, newShift]);
+    setView('pos');
+  };
+
+  const handleCloseCashShift = (
+    actualCash: number, 
+    actualTarjeta: number, 
+    actualTransferencia: number, 
+    notes?: string
+  ) => {
+    const shiftToClose = activeShiftForClosing;
+    if (!shiftToClose) {
+      console.error("No se encontró ningún turno de caja abierto.");
+      return;
+    }
+
+    const stats = getCashShiftStats(shiftToClose);
+    const actualAmount = actualCash + actualTarjeta + actualTransferencia;
+    
+    // Si era un turno de un día previo, cerrar con fecha de corte de ese día para no contaminar días posteriores
+    const openingDate = new Date(shiftToClose.openingTime);
+    const today = new Date();
+    const isPastDay = openingDate.toDateString() !== today.toDateString();
+    const closingTime = isPastDay 
+      ? new Date(new Date(openingDate).setHours(23, 59, 59, 999)).toISOString()
+      : new Date().toISOString();
+
+    // Calcular desglose de ventas por categoría
+    const categoryData = computeShiftCategorySales(shiftToClose, orders, products, cashShifts);
+
+    const closedShift: CashShift = {
+      ...shiftToClose,
+      closingTime,
+      expectedAmount: stats.expectedAmount,
+      actualAmount,
+      difference: actualAmount - stats.expectedAmount,
+      status: 'closed',
+      notes,
+      expectedCash: stats.expectedCash,
+      actualCash,
+      differenceCash: actualCash - stats.expectedCash,
+      expectedTarjeta: stats.expectedTarjeta,
+      actualTarjeta,
+      differenceTarjeta: actualTarjeta - stats.expectedTarjeta,
+      expectedTransferencia: stats.expectedTransferencia,
+      actualTransferencia,
+      differenceTransferencia: actualTransferencia - stats.expectedTransferencia,
+      expectedOtros: stats.expectedOtros,
+      expectedCourtesy: stats.expectedCourtesy,
+      categoryBreakdown: categoryData.categoryBreakdown,
+      totalArticlesSold: categoryData.totalArticlesSold,
+      updatedAt: new Date().toISOString()
+    };
+
+    setCashShifts(prev => prev.map(s => s.id === shiftToClose.id ? closedShift : s));
+    setShowClosingModal(false);
+
+    // Mandar a imprimir el ticket térmico del corte de caja inmediatamente con el objeto calculado
+    printCashShiftTicketHTML(closedShift, settings.name || 'DOSPOS');
+
+    if (isPastDay) {
+      // Iniciar de inmediato la apertura del turno de hoy para que no se opere sin fondo
+      setTimeout(() => {
+        setShowOpeningModal(true);
+      }, 350);
+    }
+  };
+
   const pendingCount = useMemo(() => 
     orders.filter(o => o.status === 'pending' || o.status === 'preparing').length, 
   [orders]);
-
-  const hasOpenCashShift = useMemo(() => {
-    return cashShifts.some(s => s.status === 'open');
-  }, [cashShifts]);
-
-  const currentOpenCashShift = useMemo(() => {
-    return cashShifts.find(s => s.status === 'open');
-  }, [cashShifts]);
 
   const checkStockAndNotify = (product: Product, selectedModifiers: SelectedModifier[] | undefined, quantity: number = 1) => {
     const required: Record<string, number> = {};
@@ -951,13 +1140,7 @@ const App: React.FC = () => {
   };
 
   const addToCart = (product: Product, selectedModifiers?: SelectedModifier[], note?: string, isCombo?: boolean, selectedComboOptions?: ComboOption[]) => {
-    if (!hasOpenCashShift && (currentUser?.role === 'Admin' || currentUser?.role === 'Caja')) {
-      setActiveNotification({
-        id: Date.now().toString(),
-        message: 'Debes abrir el turno de caja antes de tomar pedidos.',
-        type: 'warning'
-      });
-      setShowOpeningModal(true);
+    if (!requireOpenShiftOrBlock()) {
       return;
     }
     
@@ -1099,6 +1282,11 @@ const App: React.FC = () => {
     appliedPromotionId?: string
   ) => {
     if (cart.length === 0 || isSubmittingOrder) return;
+
+    if (!requireOpenShiftOrBlock()) {
+      return;
+    }
+
     setIsSubmittingOrder(true);
 
     try {
@@ -1117,35 +1305,66 @@ const App: React.FC = () => {
       if (type === 'dine-in' && finalTableLower !== 'mostrador') {
         const existingOrder = orders.find(o => 
           o.table && o.table.trim().toLowerCase() === finalTableLower && 
-          o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled'
+          o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled'
         );
         if (existingOrder) {
           // Add items to existing order
-          setOrders(prev => prev.map(o => {
+          const isPaidImmediately = !payLater;
+          const received = isPaidImmediately && cashReceived !== undefined ? cashReceived : total + tip;
+          const change = isPaidImmediately && cashReceived !== undefined ? Math.max(0, cashReceived - (total + tip)) : 0;
+
+          const newPayment: PaymentRecord[] = isPaidImmediately ? [{
+            id: generateSecureId('pay'),
+            method: payment,
+            amount: total,
+            tip: tip,
+            receivedAmount: received,
+            change: change,
+            timestamp: new Date().toISOString()
+          }] : [];
+
+          const updatedOrders = orders.map(o => {
             if (o.id === existingOrder.id) {
               const updatedItems = [...o.items];
               cart.forEach(cartItem => {
-                // New items are always 'pending'
-                const newItem = { ...cartItem, status: 'pending' as OrderStatus };
+                const newItem = { 
+                  ...cartItem, 
+                  status: 'pending' as OrderStatus,
+                  paidQuantity: isPaidImmediately ? cartItem.quantity : 0 
+                };
                 updatedItems.push(newItem);
               });
+
+              const allPayments = [...(o.payments || []), ...newPayment];
+              const totalPaidSoFar = allPayments.reduce((acc, p) => acc + p.amount, 0);
+              const newTotal = o.total + total;
+              const isFullyPaid = totalPaidSoFar >= newTotal;
+
               return {
                 ...o,
                 items: updatedItems,
-                total: o.total + total,
-                status: resolveOrderStatus(updatedItems, o.status), // Smart resolution instead of hardcoded 'pending'
+                total: newTotal,
+                tip: (o.tip || 0) + (isPaidImmediately ? tip : 0),
+                payments: allPayments,
+                isPaid: isFullyPaid,
+                payment: isFullyPaid ? (o.payment === 'Pendiente' ? payment : o.payment) : (allPayments.length > 0 ? o.payment : 'Pendiente'),
+                status: resolveOrderStatus(updatedItems, o.status),
                 updatedAt: new Date().toISOString()
               };
             }
             return o;
-          }));
+          });
+
+          setOrders(updatedOrders);
+          storage.saveOrders(updatedOrders);
           setCart([]);
-          setView('dispatch');
+          setSelectedTableId(null);
+          setView('pos');
           return;
         }
       }
 
-      const isPaidImmediately = type !== 'dine-in' && !payLater;
+      const isPaidImmediately = !payLater;
       const received = isPaidImmediately && cashReceived !== undefined ? cashReceived : total + tip;
       const change = isPaidImmediately && cashReceived !== undefined ? Math.max(0, cashReceived - (total + tip)) : 0;
       
@@ -1168,7 +1387,7 @@ const App: React.FC = () => {
       const newOrder: Order = {
         id: generateSecureId('ord'),
         orderNumber: nextOrderNumber,
-        movementNumber: (orders.length + 8862).toString(),
+        movementNumber: (orders.length + 1).toString(),
         date: new Date().toISOString(),
         client: finalClient,
         address: address?.trim() ? address.trim() : undefined,
@@ -1187,7 +1406,7 @@ const App: React.FC = () => {
         tip: isPaidImmediately ? tip : 0,
         receivedAmount: isPaidImmediately ? received : undefined,
         changeAmount: isPaidImmediately ? change : undefined,
-        closedAt: isPaidImmediately ? new Date().toISOString() : undefined,
+        closedAt: (type !== 'dine-in' && isPaidImmediately) ? new Date().toISOString() : undefined,
         items: cart.map(item => ({ 
           ...item, 
           status: 'pending' as OrderStatus,
@@ -1198,17 +1417,21 @@ const App: React.FC = () => {
         updatedAt: new Date().toISOString()
       };
 
-      setOrders(prev => [newOrder, ...prev]);
+      const updatedOrders = [newOrder, ...orders];
+      setOrders(updatedOrders);
+      storage.saveOrders(updatedOrders);
       setCart([]);
       setSelectedTableId(null);
       
-      // Check if can access dispatch before redirecting, otherwise go to first allowed view
-      if (canAccessView('dispatch')) {
-        setView('dispatch');
-      } else {
-        const firstAllowed = currentUserRole?.permissions[0] || 'login';
-        setView(firstAllowed);
+      // Update table occupancy status
+      if (type === 'dine-in' && finalTableLower !== 'mostrador') {
+        setTables(prevTables => prevTables.map(t => 
+          t.name.trim().toLowerCase() === finalTableLower ? { ...t, isOccupied: true } : t
+        ));
       }
+
+      // User preference: Stay on POS view for the next ticket
+      setView('pos');
     } finally {
       setTimeout(() => {
         setIsSubmittingOrder(false);
@@ -1428,9 +1651,10 @@ const App: React.FC = () => {
     const totalPaid = updatedPayments.reduce((acc, p) => acc + p.amount, 0);
     const allPaid = totalPaid >= orderToPay.total;
 
-    if (allPaid && orderToPay.type === 'dine-in' && orderToPay.table) {
+    // Do NOT free dine-in tables on payment alone; the waiter closes the table explicitly!
+    if (allPaid && orderToPay.type !== 'dine-in' && orderToPay.table) {
       setTables(prevTables => prevTables.map(t => 
-        t.name === orderToPay.table ? { ...t, isOccupied: false } : t
+        t.name.trim().toLowerCase() === orderToPay.table!.trim().toLowerCase() ? { ...t, isOccupied: false } : t
       ));
     }
 
@@ -1440,10 +1664,10 @@ const App: React.FC = () => {
           ...o, 
           isPaid: allPaid, 
           payment: allPaid ? method : o.payment, 
-          status: allPaid ? 'delivered' : o.status,
+          status: (allPaid && o.type !== 'dine-in') ? 'delivered' : o.status,
           payments: updatedPayments,
           tip: (o.tip || 0) + tip,
-          closedAt: allPaid ? new Date().toISOString() : o.closedAt,
+          closedAt: (allPaid && o.type !== 'dine-in') ? new Date().toISOString() : o.closedAt,
           receivedAmount: received,
           changeAmount: change,
           items: o.items.map(item => ({ 
@@ -1457,7 +1681,37 @@ const App: React.FC = () => {
     }));
   };
 
+  const closeTable = (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    const now = new Date().toISOString();
+    setOrders(prev => {
+      const updated = prev.map(o => 
+        o.id === orderId ? {
+          ...o,
+          closedAt: now,
+          status: (o.status === 'pending' || o.status === 'preparing') ? o.status : ('delivered' as const),
+          updatedAt: now
+        } : o
+      );
+      storage.saveOrders(updated);
+      return updated;
+    });
+
+    if (order.table) {
+      const tableLower = order.table.trim().toLowerCase();
+      setTables(prevTables => prevTables.map(t => 
+        t.name.trim().toLowerCase() === tableLower ? { ...t, isOccupied: false } : t
+      ));
+    }
+  };
+
   const payOrder = (orderId: string, payment: PaymentMethod, tip: number = 0, amount?: number, cashReceived?: number) => {
+    if (!requireOpenShiftOrBlock()) {
+      return;
+    }
+
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
     
@@ -1503,9 +1757,23 @@ const App: React.FC = () => {
   };
 
   const transferOrder = (orderId: string, newTable: string) => {
+    const targetOrder = orders.find(o => o.id === orderId);
+    if (!targetOrder) return;
+    const oldTableLower = targetOrder.table?.trim().toLowerCase();
+    const newTableLower = newTable.trim().toLowerCase();
+
     setOrders(prev => prev.map(o => 
       o.id === orderId ? { ...o, table: newTable, updatedAt: new Date().toISOString() } : o
     ));
+
+    if (oldTableLower && newTableLower) {
+      setTables(prevTables => prevTables.map(t => {
+        const tLower = t.name.trim().toLowerCase();
+        if (tLower === oldTableLower) return { ...t, isOccupied: false };
+        if (tLower === newTableLower) return { ...t, isOccupied: true };
+        return t;
+      }));
+    }
   };
 
   const handleUpdateSettings = (newSettings: StoreSettings) => {
@@ -1709,9 +1977,11 @@ const App: React.FC = () => {
               orders={orders}
               tables={tables}
               initialTableId={selectedTableId}
+              staleOpenCashShift={staleOpenCashShift}
               hasOpenCashShift={hasOpenCashShift}
               onOpenShift={() => setShowOpeningModal(true)}
               onCloseShift={() => setShowClosingModal(true)}
+              onShowShiftBlockModal={() => setShowShiftBlockModal(true)}
               onAddToCart={addToCart} 
               onUpdateQuantity={updateCartQuantity}
               onUpdateNote={updateCartNote}
@@ -1778,6 +2048,9 @@ const App: React.FC = () => {
               tables={tables} 
               orders={orders}
               onSelectTable={(tableId) => {
+                if (!requireOpenShiftOrBlock()) {
+                  return;
+                }
                 setSelectedTableId(tableId);
                 setView('pos');
               }}
@@ -1785,6 +2058,7 @@ const App: React.FC = () => {
               onSplitOrder={splitOrder}
               onCancel={cancelOrder}
               onDeliver={deliverOrder}
+              onCloseTable={closeTable}
               restaurantName={settings.name}
               settings={settings}
               users={users}
@@ -1913,20 +2187,116 @@ const App: React.FC = () => {
           />
         )}
 
-        {showClosingModal && currentOpenCashShift && (
+        {showClosingModal && activeShiftForClosing && (
           <CashClosingModal 
-            expectedAmount={getCashShiftStats(currentOpenCashShift).expectedAmount}
-            initialFund={currentOpenCashShift.initialFund}
-            salesTotal={getCashShiftStats(currentOpenCashShift).salesTotal}
-            expectedCash={getCashShiftStats(currentOpenCashShift).expectedCash}
-            expectedTarjeta={getCashShiftStats(currentOpenCashShift).expectedTarjeta}
-            expectedTransferencia={getCashShiftStats(currentOpenCashShift).expectedTransferencia}
-            expectedOtros={getCashShiftStats(currentOpenCashShift).expectedOtros}
-            expectedCourtesy={getCashShiftStats(currentOpenCashShift).expectedCourtesy}
+            expectedAmount={getCashShiftStats(activeShiftForClosing).expectedAmount}
+            initialFund={activeShiftForClosing.initialFund}
+            salesTotal={getCashShiftStats(activeShiftForClosing).salesTotal}
+            expectedCash={getCashShiftStats(activeShiftForClosing).expectedCash}
+            expectedTarjeta={getCashShiftStats(activeShiftForClosing).expectedTarjeta}
+            expectedTransferencia={getCashShiftStats(activeShiftForClosing).expectedTransferencia}
+            expectedOtros={getCashShiftStats(activeShiftForClosing).expectedOtros}
+            expectedCourtesy={getCashShiftStats(activeShiftForClosing).expectedCourtesy}
             onConfirm={handleCloseCashShift}
             onClose={() => setShowClosingModal(false)}
-            openingTime={currentOpenCashShift.openingTime}
+            openingTime={activeShiftForClosing.openingTime}
           />
+        )}
+
+        {/* Modal de Advertencia Bloqueante de Turno de Caja */}
+        {showShiftBlockModal && (
+          <div 
+            onClick={() => setShowShiftBlockModal(false)}
+            className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md"
+          >
+            <motion.div 
+              initial={{ scale: 0.92, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.92, opacity: 0, y: 16 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-[2.5rem] p-6 sm:p-8 max-w-md w-full shadow-2xl relative border border-slate-100 text-center overflow-hidden"
+            >
+              {staleOpenCashShift ? (
+                <>
+                  <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-500 border border-amber-200">
+                    <Icons.Clock size={36} />
+                  </div>
+                  <span className="inline-block px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-[10px] font-black uppercase tracking-wider mb-2">
+                    Turno Anterior Sin Cerrar
+                  </span>
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">
+                    Cierre de Caja Requerido
+                  </h3>
+                  <p className="text-xs text-slate-600 font-medium leading-relaxed mb-6">
+                    Existe un turno de caja abierto de una fecha previa (iniciado el{' '}
+                    <strong className="text-slate-900">
+                      {new Date(staleOpenCashShift.openingTime).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </strong>{' '}
+                    por <strong className="text-slate-900">{staleOpenCashShift.userName}</strong>). 
+                    Por seguridad contable y para evitar cruce de ventas, <strong className="text-red-600">está bloqueado registrar o añadir pedidos</strong> hasta realizar el corte del turno anterior.
+                  </p>
+                  <div className="space-y-2.5">
+                    <button 
+                      onClick={() => {
+                        setShowShiftBlockModal(false);
+                        setShowClosingModal(true);
+                      }}
+                      className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-black rounded-2xl font-black uppercase tracking-widest text-xs transition shadow-lg shadow-amber-500/20 active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <Icons.History size={16} />
+                      <span>Hacer Corte y Cerrar Turno Anterior</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowShiftBlockModal(false)}
+                      className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase tracking-widest text-xs transition"
+                    >
+                      Entendido / Regresar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 border border-red-200">
+                    <Icons.Lock size={36} />
+                  </div>
+                  <span className="inline-block px-3 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-black uppercase tracking-wider mb-2">
+                    Operación Bloqueada
+                  </span>
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">
+                    Caja Cerrada Hoy
+                  </h3>
+                  <p className="text-xs text-slate-600 font-medium leading-relaxed mb-6">
+                    No existe un turno de caja abierto para el día de hoy. 
+                    <strong className="text-red-600"> Está estrictamente bloqueado registrar órdenes nuevas o adiciones a mesas</strong> hasta que se aperture la caja con el fondo inicial correspondiente.
+                  </p>
+                  <div className="space-y-2.5">
+                    {(currentUser?.role === 'Admin' || currentUser?.role === 'Caja') ? (
+                      <button 
+                        onClick={() => {
+                          setShowShiftBlockModal(false);
+                          setShowOpeningModal(true);
+                        }}
+                        className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition shadow-lg shadow-red-600/25 active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <Icons.Cart size={16} />
+                        <span>Realizar Apertura de Caja Ahora</span>
+                      </button>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-2 text-[11px] text-amber-800 font-bold">
+                        Solicita a un usuario Administrador o Encargado de Caja que realice la apertura para habilitar el registro de pedidos.
+                      </div>
+                    )}
+                    <button 
+                      onClick={() => setShowShiftBlockModal(false)}
+                      className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-black uppercase tracking-widest text-xs transition"
+                    >
+                      Entendido / Regresar
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

@@ -22,10 +22,19 @@ interface HistoryViewProps {
 
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#000000'];
 
+const getLocalDateString = (d: Date | string = new Date()): string => {
+  const date = typeof d === 'string' ? new Date(d) : d;
+  if (isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const HistoryView: React.FC<HistoryViewProps> = ({ 
   orders, tables, cashShifts, restaurantName, settings, hasOpenCashShift, onCloseCashShift, onOpenSettings 
 }) => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString(new Date());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'list' | 'analytics'>('list');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
@@ -34,7 +43,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
 
   const todaySummary = useMemo(() => {
     const todayOrders = orders.filter(o => 
-      new Date(o.date).toISOString().split('T')[0] === today && 
+      getLocalDateString(o.date) === today && 
       o.status !== 'cancelled' && 
       o.isPaid
     );
@@ -61,7 +70,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     if (!isFilterActive) return orders;
     
     return orders.filter(order => {
-      const orderDate = new Date(order.date).toISOString().split('T')[0];
+      const orderDate = getLocalDateString(order.date);
       return orderDate >= dateRange.start && orderDate <= dateRange.end;
     });
   }, [orders, dateRange, isFilterActive]);
@@ -246,9 +255,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({
           <div className="flex items-center space-x-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button 
               onClick={() => {
-                const prev = new Date(dateRange.start);
+                const prev = new Date(dateRange.start + 'T12:00:00');
                 prev.setDate(prev.getDate() - 1);
-                const prevStr = prev.toISOString().split('T')[0];
+                const prevStr = getLocalDateString(prev);
                 setDateRange({ start: prevStr, end: prevStr });
                 setIsFilterActive(true);
               }}
@@ -285,9 +294,9 @@ const HistoryView: React.FC<HistoryViewProps> = ({
             </div>
             <button 
               onClick={() => {
-                const next = new Date(dateRange.start);
+                const next = new Date(dateRange.start + 'T12:00:00');
                 next.setDate(next.getDate() + 1);
-                const nextStr = next.toISOString().split('T')[0];
+                const nextStr = getLocalDateString(next);
                 setDateRange({ start: nextStr, end: nextStr });
                 setIsFilterActive(true);
               }}

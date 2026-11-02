@@ -604,7 +604,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
     if (!table) return;
     
     // Check if table has active order
-    const hasOrder = orders.some(o => o.table === table.name && !o.isPaid);
+    const hasOrder = orders.some(o => o.table?.trim().toLowerCase() === table.name.trim().toLowerCase() && o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled');
     if (hasOrder) {
       alert('No se puede eliminar una mesa con una cuenta abierta.');
       return;

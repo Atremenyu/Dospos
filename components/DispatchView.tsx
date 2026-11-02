@@ -163,7 +163,9 @@ const DispatchView: React.FC<DispatchViewProps> = ({
               )}
             </div>
             <h3 className="text-lg font-black text-black tracking-tighter uppercase leading-none pt-1">
-              {isDineIn ? `Mesa ${order.table}` : `${order.takeawayType?.toUpperCase() || 'MOSTRADOR'}`}
+              {isDineIn 
+                ? (order.table && order.table.trim().toLowerCase().startsWith('mesa') ? order.table.trim() : `Mesa ${order.table}`) 
+                : `${order.takeawayType?.toUpperCase() || 'MOSTRADOR'}`}
             </h3>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
               {order.client} • {new Date(order.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

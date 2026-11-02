@@ -36,6 +36,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   onCloseCashShift
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [adminDrawerOpen, setAdminDrawerOpen] = useState(true);
   const [notifPermission, setNotifPermission] = useState<string>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
   );
@@ -178,28 +179,38 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                   const isActive = activeView === tab.id;
                   return (
                     <React.Fragment key={tab.id}>
-                      <button
-                        onClick={() => handleTabClick(tab.id as ViewState)}
-                        className={`
-                          w-full flex items-center space-x-4 p-4 rounded-2xl transition-all font-black text-xs uppercase tracking-widest
-                          ${isActive ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}
-                        `}
-                      >
-                        <span className="opacity-70">{tab.icon}</span>
-                        <span>{tab.label}</span>
-                        {tab.badge !== undefined && tab.badge > 0 && (
-                          <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] ${isActive ? 'bg-white text-red-600' : 'bg-red-600 text-white'}`}>
-                            {tab.badge}
-                          </span>
-                        )}
-                      </button>
-                      
-                      {isActive && tab.id === 'central' && (
-                        <motion.div 
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          className="pl-6 space-y-1 mt-1 mb-2"
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => handleTabClick(tab.id as ViewState)}
+                          className={`
+                            flex-1 flex items-center space-x-4 p-4 rounded-2xl transition-all font-black text-xs uppercase tracking-widest
+                            ${isActive ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}
+                          `}
                         >
+                          <span className="opacity-70">{tab.icon}</span>
+                          <span>{tab.label}</span>
+                          {tab.badge !== undefined && tab.badge > 0 && (
+                            <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] ${isActive ? 'bg-white text-red-600' : 'bg-red-600 text-white'}`}>
+                              {tab.badge}
+                            </span>
+                          )}
+                        </button>
+                        {tab.id === 'central' && (
+                          <button
+                            type="button"
+                            onClick={() => setAdminDrawerOpen(!adminDrawerOpen)}
+                            className="p-3 text-slate-500 hover:text-white rounded-xl hover:bg-slate-900 transition-colors"
+                            title={adminDrawerOpen ? "Contraer menú de administración" : "Expandir menú de administración"}
+                          >
+                            <svg className={`w-4 h-4 transition-transform duration-200 ${adminDrawerOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                      
+                      {tab.id === 'central' && adminDrawerOpen && (
+                        <div className="pl-6 space-y-1 mt-1 mb-2">
                           {[
                             { id: 'overview', label: 'Dashboard', icon: <Icons.Activity size={14} /> },
                             { id: 'history', label: 'Ventas', icon: <Icons.TrendingUp size={14} /> },
@@ -211,23 +222,27 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                             { id: 'roles', label: 'Roles', icon: <Icons.Shield size={14} /> },
                             { id: 'shifts', label: 'Turnos', icon: <Icons.Clock size={14} /> },
                             { id: 'general', label: 'Configuración / Caja', icon: <Icons.Settings size={14} /> }
-                          ].map(adminTab => (
-                            <button
-                              key={adminTab.id}
-                              onClick={() => {
-                                onAdminViewChange(adminTab.id as AdminTabType);
-                                setIsSidebarOpen(false);
-                              }}
-                              className={`
-                                w-full flex items-center space-x-3 p-3 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest
-                                ${adminView === adminTab.id ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-300'}
-                              `}
-                            >
-                              <span className="opacity-70">{adminTab.icon}</span>
-                              <span className="truncate">{adminTab.label}</span>
-                            </button>
-                          ))}
-                        </motion.div>
+                          ].map(adminTab => {
+                            const isTabActive = activeView === 'central' && adminView === adminTab.id;
+                            return (
+                              <button
+                                key={adminTab.id}
+                                onClick={() => {
+                                  onViewChange('central');
+                                  onAdminViewChange(adminTab.id as AdminTabType);
+                                  setIsSidebarOpen(false);
+                                }}
+                                className={`
+                                  w-full flex items-center space-x-3 p-3 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest
+                                  ${isTabActive ? 'bg-red-600/30 text-red-400 border border-red-500/30 font-extrabold' : 'text-slate-400 hover:text-white hover:bg-slate-900'}
+                                `}
+                              >
+                                <span className="opacity-70">{adminTab.icon}</span>
+                                <span className="truncate">{adminTab.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                     </React.Fragment>
                   );

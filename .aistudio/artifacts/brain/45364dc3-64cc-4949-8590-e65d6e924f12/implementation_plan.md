@@ -1,119 +1,60 @@
-# DashboardView con Recharts & Auditoría Diaria de Productos
+# Plan de Trabajo: Estabilización y Corrección Integral de DosPOS
 
-Implementación de un nuevo módulo de analíticas visuales en tiempo real (`DashboardView`) potenciado por **Recharts**, integrado como una nueva pestaña dedicada **"Analíticas"** en el panel de **Central / AdminCRM**. Incluye visualizaciones de tendencias de ingresos, distribución de métodos de pago, ranking de platos más vendidos y una herramienta especializada de control diario de ventas por producto con selector de fecha, búsqueda instantánea, filtros por categoría y exportación.
+Plan de arquitectura y ejecución técnica para corregir fallos críticos de cobro, validación de efectivo, persistencia de órdenes, sincronización en tiempo real y ciclo de vida de mesas en DosPOS.
 
 ---
 
-## Decisiones Críticas y Preferencias Confirmadas
+### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> A partir de las preguntas aclaratorias, se han confirmado las siguientes decisiones de producto y diseño:
+> Decisiones operativas y arquitectónicas acordadas y confirmadas:
 
-- **Ubicación en el Sistema**: Se creará una nueva pestaña dedicada llamada **"Analíticas"** en la barra lateral de **Central (AdminCRM)**, preservando el Dashboard ejecutivo (`overview`) existente e incorporando acceso directo entre ambos.
-- **Auditoría Diaria de Productos**: Selector interactivo de fecha con tabla dinámica, buscador en tiempo real, filtro por categoría, métricas de participación y barras de volumen relativo.
-- **Rango Temporal de Gráficos**: Predeterminado a los **Últimos 7 días**, con botones rápidos para conmutar a **Hoy (desglose horario)** y **Este Mes (vista acumulada)**.
-
----
-
-## 1. Visión General del Módulo
-
-### ¿Qué hace?
-Proporciona a la gerencia y administración gastronómica una radiografía visual y analítica del negocio sin demoras:
-1. **KPIs en Vivo**: Ventas netas, tickets emitidos, ticket promedio y volumen total de artículos despachados.
-2. **Gráfico de Curva de Ventas (AreaChart / LineChart)**: Evolución cronológica de facturación diaria con comparador de volumen de pedidos.
-3. **Distribución de Métodos de Pago (PieChart / Donut)**: Visualización porcentual de Efectivo, Tarjeta, Transferencia, Uber, DiDi y Cortesías.
-4. **Ranking de Top Productos (BarChart)**: Gráfica de barras de los productos líderes en ventas.
-5. **Control de Ventas por Producto Día por Día (Daily Product Inspector)**: Permite seleccionar cualquier día del calendario (o pulsar "Hoy" / "Ayer") para ver con precisión quirúrgica cuántas unidades se vendieron de cada producto, cuánto dinero generaron y su peso en la recaudación del día.
-
-### Audiencia Objetivo
-Administradores, cajeros supervisores y chefs ejecutivos que necesitan auditar el rendimiento del menú, planificar compras de insumos basadas en demanda real y contrastar turnos de venta.
+- **Decisión 1 (Comandas a Cocina)**: Los pedidos de mesa y a domicilio pendientes de pago ("POR COBRAR") se envían **inmediatamente a cocina** al registrarse la comanda, sin esperar al momento del cobro.
+- **Decisión 2 (Flujo de Navegación tras Cobro)**: Tras finalizar una venta o cobro, la aplicación **permanece en la pantalla de Venta POS** lista para tomar el siguiente pedido inmediatamente, evitando saltos molestos a Cocina o Mesas.
+- **Decisión 3 (Sincronización en Tiempo Real)**: Se conecta al servidor Express interno mediante WebSocket con **reconexión inteligente y backoff exponencial** (3s hasta 60s, con fallback silencioso a HTTP), eliminando el bucle infinito a dominios externos estáticos como Netlify.
+- **Decisión 4 (Ciclo de Vida de Mesas y Adición de Ítems)**: La entrega de comida a una mesa (`deliverOrder`) actualiza el estado de los platillos pero **NUNCA cierra la cuenta ni libera la mesa**. La cuenta de mesa se mantiene activa (`!closedAt`) hasta que el mesero o cajero la cierra explícitamente (`LIBERAR MESA Y FINALIZAR SERVICIO` o `COBRAR Y CERRAR`).
+- **Decisión 5 (Cuentas Abiertas y Consumos Adicionales sin Cobro Anticipado)**: En modo Comedor / Mesas, el sistema opera por defecto como **Cuenta Abierta (Cobrar al Final)**. Cuando se agregan productos a una mesa nueva o a una mesa existente (aunque la ronda previa ya haya sido pagada), el sistema **NO exige método de pago ni efectivo recibido**. Los nuevos ítems se envían directamente a cocina y se acumulan al saldo de la mesa para liquidarse únicamente al momento de pedir la cuenta y cerrar la mesa.
 
 ---
 
-## 2. Experiencia de Usuario y Diseño Visual
+### 1. Overview & Core Concept
 
-### Identidad Visual y Estilo
-Siguiendo las directrices de `frontend-design` y la estética **Slate Dark Cosmic / Neobrutalista** de DosPOS:
-- **Estructura y Jerarquía**: Tarjetas con bordes sutiles `border border-slate-100 dark:border-neutral-800`, fondos blancos limpios sobre lienzo `bg-slate-50`, sin pills estáticas innecesarias (metadatos limpios con separadores tipográficos `·`).
-- **Números Tabulares**: Todas las cifras monetarias, cantidades y porcentajes utilizan `font-variant-numeric: tabular-nums` para evitar fluctuaciones visuales.
-- **Paleta de Colores de Recharts**:
-  - Ventas / Ingresos: Rojo vibrante `#DC2626` (identidad DosPOS) y Esmeralda `#16A34A`.
-  - Métodos de Pago: Efectivo (Verde `#10B981`), Tarjeta (Azul `#3B82F6`), Transferencia (Púrpura `#8B5CF6`), Uber/Didi (Naranja `#F59E0B`), Cortesía (Gris `#64748B`).
-- **Interactividad**: Tooltips personalizados con diseño oscuro nítido, microanimaciones de entrada fluidas y transiciones reactivas cuando se añade una nueva venta en tiempo real.
-
-### Flujo de Usuario: Control de Productos por Día
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│ [📅 Seleccionar Día: 2026-10-25]  [Hoy] [Ayer]  [🔍 Buscar Producto..]  │
-├────────────────────────────────────────────────────────────────────────┤
-│ Resumen del Día:  342 Artículos  ·  $14,250.00 MXN  ·  28 Platos Únicos│
-├────────────────────────────────────────────────────────────────────────┤
-│ PRODUCTO               CATEGORÍA    CANT.    PARTICIPACIÓN   TOTAL ($) │
-├────────────────────────────────────────────────────────────────────────┤
-│ Burger BBQ Monster     Burgers       45 pzas   ███████ 28%   $5,400.00 │
-│ Papas Rústicas         Guarnición    38 pzas   █████   18%   $2,280.00 │
-│ Cerveza Artesanal      Bebidas       32 pzas   ████    15%   $2,560.00 │
-│ ...                                                                    │
-└────────────────────────────────────────────────────────────────────────┘
-```
+- **Qué resuelve**: Elimina el fallo donde añadir productos a una mesa exigía un cobro inmediato o bloqueaba la acción por falta de efectivo recibido, permite rondas continuas de consumo en mesas activas o previamente pagadas, previene cobros en efectivo con $0 recibido, y optimiza la ergonomía en hora pico.
+- **Usuario objetivo**: Cajeros, meseros, supervisores y personal de cocina en restaurantes y bares con alto flujo de tickets y comandas simultáneas.
+- **Valor clave**: Cuentas abiertas naturales como en cualquier restaurante: se pide, se cocina, se disfruta, y se cobra solo el saldo restante al final.
 
 ---
 
-## 3. Decisiones de Producto y Arquitectura Técnica
+### 2. User Experience & Visual Design
 
-### Decisión 1: Sincronización en Tiempo Real sin Recargas
-- **Enfoque**: `DashboardView` se alimenta directamente del arreglo reactivo `orders` propagado por `App.tsx` y sincronizado vía WebSockets. Cada vez que se cierra una mesa o se confirma un pedido en mostrador, los gráficos y tablas se actualizan en milisegundos.
-- **Filtro de Integridad**: Se descartan órdenes con estado `cancelled`, asegurando que métricas financieras e inventario no computen transacciones anuladas.
+#### A. Ciclo de Vida de Cuentas de Mesa y Adición de Ítems
+1. **Mesa Nueva (Cuenta Abierta por Defecto)**: Al seleccionar una mesa y agregar productos, el modo predeterminado es `Al Cerrar Mesa (Cuenta Abierta)`. El botón dice `ABRIR CUENTA MESA (ENVIAR A COCINA)`. No se pide método de pago ni se valida efectivo, la comanda va directo a cocina y la mesa queda ocupada.
+2. **Adición de Nuevos Ítems a Mesa Existente / Previamente Pagada**: Al añadir items a una mesa que ya tiene comanda (haya o no pagado la primera ronda), el panel muestra el banner informativo: *"Mesa con Cuenta Abierta — Los nuevos items se enviarán a cocina de inmediato y se añadirán a la cuenta existente para liquidarse al cerrar la mesa."*
+3. **Botón Directo a Cocina**: El botón dice `AÑADIR A MESA (ENVIAR A COCINA)`. No se solicita pago ni propina anticipada.
+4. **Actualización de Saldo Pendiente**: Si la mesa pagó $500 al inicio y luego pide $100 en bebidas, la mesa muestra badge `Resta $100`. Al cerrar la mesa en `TablesView`, el cobro se realiza únicamente por los $100 restantes.
 
-### Decisión 2: Desglose Atómico de Productos
-- **Enfoque**: Al procesar pedidos, el cálculo itera sobre `order.items`, sumando las cantidades reales (`item.quantity`), considerando modificadores con precio extra y asociándolos a la fecha ISO de la orden (`order.date` o `order.closedAt`).
-- **Beneficio**: Permite exactitud total incluso cuando una mesa agregó productos en múltiples rondas antes de liquidar.
+#### B. Validación Estricta de Efectivo y Botones Rápidos Inteligentes
+- **Validación Visual en Tiempo Real**: Si el método es "Efectivo" en pago inmediato, el campo `Recibido` es obligatorio. Si el monto recibido es menor al total requerido (total + propina), el botón de cobro muestra advertencia clara en rojo: *"Faltan $X.XX para completar el pago"*.
+- **Billetes y Redondeos Naturales**: Generación de botones rápidos sin duplicados para denominaciones mexicanas ($20, $50, $100, $200, $500, $1000).
 
 ---
 
-## 4. Diagrama de Arquitectura y Mapeo de Componentes
+### 3. Fases Ejecutadas y Verificadas
 
-```text
-                        ┌──────────────────┐
-                        │     App.tsx      │ (Root State & WebSocket Sync)
-                        └────────┬─────────┘
-                                 │ orders, products, categories, settings
-                                 ▼
-                        ┌──────────────────┐
-                        │   AdminCRM.tsx   │ (Sidebar Navigation)
-                        └────────┬─────────┘
-                                 │
-     ┌───────────────────────────┴───────────────────────────┐
-     ▼                                                       ▼
-┌──────────────────┐                                  ┌──────────────────┐
-│  overview / etc. │                                  │  DashboardView   │ (NUEVA PESTAÑA: 'analytics')
-└──────────────────┘                                  └────────┬─────────┘
-                                                               │
-                       ┌───────────────────────────────────────┴───────────────────────────────────────┐
-                       ▼                                       ▼                                       ▼
-             ┌──────────────────┐                    ┌──────────────────┐                    ┌──────────────────┐
-             │ SalesTimeChart   │                    │ PaymentMixChart  │                    │ DailyProducts    │
-             │  (Area / Bar)    │                    │  (Donut Recharts)│                    │  Table & Filter  │
-             └──────────────────┘                    └──────────────────┘                    └──────────────────┘
-```
-
-### Plan de Cambios Específicos:
-1. **`types.ts`**:
-   - Ampliar `AdminTabType` para incluir `'analytics'`.
-2. **`components/DashboardView.tsx` (Nuevo Archivo)**:
-   - Encabezado con selector de rango temporal general (7 días, Hoy, Mes).
-   - Fila de KPIs calculados dinámicamente con Recharts mini-trends.
-   - Gráfico de Ventas e Ingresos en el tiempo (`ResponsiveContainer`, `AreaChart`, `XAxis`, `YAxis`, `Tooltip`, `Area`).
-   - Gráfico de Métodos de Pago (`PieChart`, `Pie`, `Cell`, `Legend`, `Tooltip`).
-   - Gráfico de Top Productos (`BarChart` horizontal con ranking).
-   - **Módulo de Auditoría Diaria de Productos**:
-     - Selector de fecha nativo con botones de acceso rápido ("Hoy", "Ayer").
-     - Resumen métrico del día seleccionado.
-     - Buscador de texto en vivo y selector de categoría.
-     - Tabla ordenada por unidades o recaudación, con barra porcentual de volumen.
-     - Botón de descarga de informe diario en formato CSV.
-3. **`components/AdminCRM.tsx`**:
-   - Agregar el botón de la pestaña `'analytics'` en la barra lateral con icono descriptivo.
-   - Conectar el renderizado de `DashboardView` pasando `orders`, `products`, `categories` y `settings`.
-4. **Verificación y Compilación**:
-   - Ejecutar `compile_applet` para garantizar cero errores de TypeScript y empaquetado de producción exitoso.
+- [x] **Fase 1: Corrección de Cobro Inmediato en Mesas y Manejo de Propina**
+- [x] **Fase 2: Validación de Efectivo y Botones Rápidos**
+- [x] **Fase 3: Persistencia Robusta y Sincronización WebSocket con Backoff**
+- [x] **Fase 4: Formato KDS, Fechas Locales y Turnos**
+- [x] **Fase 5: Ciclo de Vida de Mesas y Adición de Ítems Continuos**
+- [x] **Fase 6: Flujo de Cuenta Abierta por Defecto y Adición de Ítems sin Cobro Forzado**
+- [x] **Fase 7: Bloqueo Estricto de Turno Anterior Sin Cerrar y Continuidad de Ventas en Arqueo**
+  - **Bloqueo de Pedidos sin Cerrar Turno Anterior**: Si existe un turno abierto de una jornada previa (`staleOpenCashShift`), el sistema bloquea de forma estricta la adición de productos al carrito y el checkout, mostrando un banner y un modal/overlay de bloqueo dedicado en el POS para forzar el corte de caja antes de iniciar operaciones.
+  - **Reconciliación Exacta sin Ventas Huérfanas**: `getCashShiftStats` y `computeShiftCategorySales` ahora calculan un `effectiveStartTime` que absorbe las ventas del día calendario antes de la apertura formal sin restar del turno anterior ya cerrado, garantizando que el corte de hoy coincida peso por peso con el dinero físico y digital.
+- [x] **Fase 8: Modal Bloqueante Centralizado en App para Operaciones sin Turno Válido**
+  - **Lógica de Bloqueo Central (`requireOpenShiftOrBlock`)**: Implementada en `App.tsx` para interceptar de raíz cualquier intento de creación de comanda nueva, adición de platillos a mesas existentes, selección de mesas en `TablesView`, división de cuentas y registro de cobros si no existe un `cashShift` abierto válido para hoy (`isShiftOpenValidToday`).
+  - **Modal de Advertencia Bloqueante**: Sustituye las alertas nativas y notificaciones temporales por un modal interactivo con backdrop de alto contraste que explica la causa del bloqueo (turno anterior sin cerrar o caja no abierta hoy) y proporciona las acciones directas de resolución según los permisos del usuario.
+- [x] **Fase 9: Certificación de Deploy, Retención de Datos y Transmisión en Tiempo Real**
+  - **Consistencia Docker & Lockfile**: Eliminado `bun.lock` conflictivo y regenerado `package-lock.json`. Validado con `npm ci` y `npm ci --omit=dev` para garantizar éxito total en pipelines de Docker y Railway.
+  - **Resiliencia de Almacenamiento Local**: Agregado helper `safeParse` en `services/storage.ts` en todos los getters para evitar crashes por JSON corrupto en localStorage.
+  - **Transmisión en Tiempo Real sin Memory Leaks**: Heartbeat ping-pong en `server.ts` a 25s, limpieza de listeners en desconexión, y preservación de turnos cerrados en eventos WebSocket de clientes simultáneos.
+  - **Batería de Pruebas Exitosa**: 10 de 10 pruebas unitarias y de integración pasadas (corte de caja, inicio efectivo, atomicidad de disco, endpoints REST). Compilación limpia de producción (`npm run build` y `tsc --noEmit`).

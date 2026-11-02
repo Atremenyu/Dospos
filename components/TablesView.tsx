@@ -17,6 +17,7 @@ interface TablesViewProps {
   onSplitOrder: (id: string, splitQuantities: Record<number, number>, payment: PaymentMethod, tip?: number) => void;
   onCancel: (id: string) => void;
   onDeliver: (id: string) => void;
+  onCloseTable?: (orderId: string) => void;
   restaurantName: string;
   settings?: StoreSettings;
   users: User[];
@@ -24,7 +25,7 @@ interface TablesViewProps {
 }
 
 const TablesView: React.FC<TablesViewProps> = ({ 
-  tables, orders, onSelectTable, onPay, onSplitOrder, onCancel, onDeliver, restaurantName, settings, users, roles
+  tables, orders, onSelectTable, onPay, onSplitOrder, onCancel, onDeliver, onCloseTable, restaurantName, settings, users, roles
 }) => {
   const [managingTableId, setManagingTableId] = useState<string | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod | null>(null);
@@ -64,7 +65,12 @@ const TablesView: React.FC<TablesViewProps> = ({
   );
 
   const getTableStatus = (table: Table) => {
-    const activeOrder = orders.find(o => o.table === table.name && o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled');
+    const activeOrder = orders.find(o => 
+      o.table && o.table.trim().toLowerCase() === table.name.trim().toLowerCase() && 
+      o.type === 'dine-in' && 
+      o.status !== 'cancelled' &&
+      !o.closedAt
+    );
     if (activeOrder) return { status: 'occupied', order: activeOrder };
     return { status: 'free', order: null };
   };
@@ -109,6 +115,9 @@ const TablesView: React.FC<TablesViewProps> = ({
     const totalRemainingQty = managingOrder.items.reduce((acc, i) => acc + (i.quantity - (i.paidQuantity || 0)), 0);
     
     if (totalSelectedQty >= totalRemainingQty) {
+      if (onCloseTable) {
+        onCloseTable(managingOrder.id);
+      }
       setManagingTableId(null);
       setTipAmount('');
       setCashReceived('');
@@ -173,7 +182,11 @@ const TablesView: React.FC<TablesViewProps> = ({
                 className={`
                   relative aspect-square rounded-[2.5rem] flex flex-col items-center justify-center space-y-2 transition-all duration-300 group
                   ${isOccupied 
-                    ? (isReady ? 'bg-green-600 text-white shadow-xl shadow-green-200 ring-4 ring-green-100 scale-105' : 'bg-red-600 text-white shadow-xl shadow-red-200 ring-4 ring-red-100 scale-[1.02]')
+                    ? (order?.isPaid
+                        ? 'bg-emerald-700 text-white shadow-xl shadow-emerald-200 ring-4 ring-emerald-100 scale-[1.02]'
+                        : (isReady 
+                            ? 'bg-green-600 text-white shadow-xl shadow-green-200 ring-4 ring-green-100 scale-105' 
+                            : 'bg-red-600 text-white shadow-xl shadow-red-200 ring-4 ring-red-100 scale-[1.02]'))
                     : 'bg-white text-slate-400 border-2 border-slate-100 hover:border-red-200 hover:bg-slate-50 shadow-sm'}
                 `}
               >
@@ -189,11 +202,14 @@ const TablesView: React.FC<TablesViewProps> = ({
                   {table.name}
                 </span>
                 
-                {isOccupied && order && (
-                   <div className="absolute -bottom-2 bg-black text-white px-3 py-1 rounded-full text-[10px] font-black shadow-lg">
-                     ${order.total.toLocaleString()}
-                   </div>
-                )}
+                {isOccupied && order && (() => {
+                   const remainingBalance = order.total - (order.payments?.reduce((acc, p) => acc + p.amount, 0) || 0);
+                   return (
+                     <div className={`absolute -bottom-2 px-3 py-1 rounded-full text-[10px] font-black shadow-lg ${order.isPaid ? 'bg-emerald-950 text-emerald-200 ring-2 ring-emerald-400' : 'bg-black text-white'}`}>
+                       {order.isPaid ? 'PAGADO' : (order.payments && order.payments.length > 0 ? `Resta $${remainingBalance.toLocaleString()}` : `$${order.total.toLocaleString()}`)}
+                     </div>
+                   );
+                })()}
                 
                 {!isOccupied && (
                    <span className="text-[8px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
@@ -404,155 +420,46 @@ const TablesView: React.FC<TablesViewProps> = ({
                   </div>
                 )}
 
-                 {/* Payment Section */}
-                <div className="space-y-4 pt-4 border-t border-slate-100">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Método de Pago</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map(met => {
-                      const isSelected = selectedPayment === met;
-                      const isCash = met === 'Efectivo';
-                      const remainingTotal = managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0);
-                      const amountToPay = isSplitMode 
-                        ? (splitType === 'equal' ? remainingTotal / numPeople : splitTotal) 
-                        : remainingTotal;
-                      const tip = parseFloat(tipAmount) || 0;
-                      const required = amountToPay + tip;
-
-                      return (
-                        <div key={met} className={isSelected && isCash ? 'col-span-2 sm:col-span-4' : ''}>
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              if (met === 'Cortesía' && !authorizedBy) {
-                                setShowPinModal(true);
-                              } else {
-                                setSelectedPayment(met);
-                                setCashReceived('');
-                                if (met !== 'Cortesía') {
-                                  setAuthorizedBy(null);
-                                }
-                              }
-                            }}
-                            className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all flex flex-col items-center justify-center space-y-0.5 ${
-                              isSelected 
-                              ? 'border-red-600 bg-red-600 text-white shadow-lg' 
-                              : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-200'
-                            }`}
-                          >
-                            <span>{met}</span>
-                            {met === 'Cortesía' && authorizedBy && (
-                              <span className="text-[7px] text-green-200 mt-0.5 uppercase tracking-tight block">Aprobado: {authorizedBy}</span>
-                            )}
-                          </button>
-
-                          {isSelected && isCash && (
-                            <motion.div 
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              className="mt-3 p-4 bg-red-50 border-2 border-red-100 rounded-2xl space-y-4 overflow-hidden"
-                            >
-                              <div className="flex justify-between items-end">
-                                <div className="space-y-1">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Recibido</p>
-                                  <div className="relative">
-                                    <span className="absolute left-0 top-1/2 -translate-y-1/2 text-xl font-black text-red-300">$</span>
-                                    <input 
-                                      type="text"
-                                      inputMode="decimal"
-                                      className="w-full bg-transparent border-none outline-none pl-6 text-2xl font-black tracking-tighter text-black placeholder:text-red-100"
-                                      placeholder="0.00"
-                                      autoFocus
-                                      value={cashReceived}
-                                      onChange={(e) => {
-                                        const val = e.target.value.replace(/,/g, '.');
-                                        if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
-                                          setCashReceived(val);
-                                        }
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                                {cashReceived && parseFloat(cashReceived) > 0 && (
-                                  <div className="text-right">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-green-600">Cambio</p>
-                                    <p className="text-2xl font-black text-green-600 tracking-tighter">
-                                      ${Math.max(0, parseFloat(cashReceived) - required).toLocaleString()}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                              
-                              <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-red-100">
-                                {getQuickCashOptions(required).map(amount => (
-                                  <button 
-                                    key={amount}
-                                    onClick={() => setCashReceived(amount.toString())}
-                                    className="py-1.5 bg-white hover:bg-black hover:text-white rounded-lg text-[9px] font-black transition-all border border-red-100 uppercase"
-                                  >
-                                    ${amount.toLocaleString()}
-                                  </button>
-                                ))}
-                              </div>
-                            </motion.div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="pt-4 border-t border-slate-100">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Propina (Opcional)</label>
-                    <div className="flex items-center space-x-2">
-                       <div className="relative flex-grow">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                        <input 
-                          type="number"
-                          value={tipAmount}
-                          onChange={e => setTipAmount(e.target.value)}
-                          className="w-full pl-8 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-red-600 outline-none font-bold text-sm"
-                          placeholder="0.00"
-                        />
+                 {/* Payment Section or Table Freed/Paid Card */}
+                {managingOrder.isPaid ? (
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="bg-emerald-50 border-2 border-emerald-200 p-6 rounded-3xl text-center space-y-4">
+                      <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-600 text-white rounded-full shadow-lg shadow-emerald-200">
+                        <Icons.CheckCircle size={32} />
                       </div>
-                      <div className="grid grid-cols-3 gap-1">
-                        {[0.10, 0.15, 0.20].map(pct => {
-                          const amountToPay = isSplitMode ? splitTotal : (managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0));
-                          return (
-                            <button
-                              key={pct}
-                              onClick={() => setTipAmount((amountToPay * pct).toFixed(2))}
-                              className="px-3 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-[10px] font-black"
-                            >
-                              {pct * 100}%
-                            </button>
-                          );
-                        })}
+                      <div>
+                        <h4 className="text-lg font-black uppercase text-emerald-950 tracking-tight">Cuenta de Mesa Liquidada</h4>
+                        <p className="text-xs font-bold text-emerald-800 mt-1">
+                          Pagado con {managingOrder.payment} (${managingOrder.total.toLocaleString()})
+                          {managingOrder.tip > 0 ? ` + $${managingOrder.tip.toLocaleString()} de propina` : ''}
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-semibold mt-1">
+                          Saldo pendiente: $0.00 • No hay cobro pendiente
+                        </p>
                       </div>
+                      <button
+                        onClick={() => {
+                          if (onCloseTable) {
+                            onCloseTable(managingOrder.id);
+                          } else {
+                            onDeliver(managingOrder.id);
+                          }
+                          setManagingTableId(null);
+                        }}
+                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition shadow-xl active:scale-95 flex items-center justify-center space-x-2"
+                      >
+                        <Icons.Check />
+                        <span>LIBERAR MESA Y FINALIZAR SERVICIO</span>
+                      </button>
                     </div>
                   </div>
-
-                  {/* Summary Total for Billing */}
-                  <div className="p-6 bg-black text-white rounded-2xl space-y-4 mb-4">
-                     <div className="flex justify-between items-center border-b border-white/10 pb-3">
-                        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Saldo Pendiente</span>
-                        <span className="text-xl font-black">${(isSplitMode ? splitTotal : (managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0))).toLocaleString()}</span>
-                     </div>
-                     {parseFloat(tipAmount) > 0 && (
-                       <div className="flex justify-between items-center border-b border-white/10 pb-3">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-red-400">Propina Añadida</span>
-                          <span className="text-xl font-black text-red-400">+ ${parseFloat(tipAmount).toLocaleString()}</span>
-                       </div>
-                     )}
-                     <div className="flex justify-between items-center pt-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Total a Cobrar</span>
-                        <span className="text-3xl font-black tracking-tighter">
-                          ${((isSplitMode ? splitTotal : (managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0))) + (parseFloat(tipAmount) || 0)).toLocaleString()}
-                        </span>
-                     </div>
-                  </div>
-
-                  <button 
-                    onClick={() => {
-                      if (selectedPayment) {
+                ) : (
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Método de Pago</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(['Efectivo', 'Tarjeta', 'Transferencia', 'Cortesía'] as PaymentMethod[]).map(met => {
+                        const isSelected = selectedPayment === met;
+                        const isCash = met === 'Efectivo';
                         const remainingTotal = managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0);
                         const amountToPay = isSplitMode 
                           ? (splitType === 'equal' ? remainingTotal / numPeople : splitTotal) 
@@ -560,44 +467,207 @@ const TablesView: React.FC<TablesViewProps> = ({
                         const tip = parseFloat(tipAmount) || 0;
                         const required = amountToPay + tip;
 
-                        if (selectedPayment === 'Efectivo') {
-                          const received = parseFloat(cashReceived);
-                          if (isNaN(received) || received < required) {
-                            alert(`El cliente debe entregar al menos $${required.toLocaleString()} (Total + Propina)`);
-                            return;
-                          }
-                        }
+                        return (
+                          <div key={met} className={isSelected && isCash ? 'col-span-2 sm:col-span-4' : ''}>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                if (met === 'Cortesía' && !authorizedBy) {
+                                  setShowPinModal(true);
+                                } else {
+                                  setSelectedPayment(met);
+                                  setCashReceived('');
+                                  if (met !== 'Cortesía') {
+                                    setAuthorizedBy(null);
+                                  }
+                                }
+                              }}
+                              className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all flex flex-col items-center justify-center space-y-0.5 ${
+                                isSelected 
+                                ? 'border-red-600 bg-red-600 text-white shadow-lg' 
+                                : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-200'
+                              }`}
+                            >
+                              <span>{met}</span>
+                              {met === 'Cortesía' && authorizedBy && (
+                                <span className="text-[7px] text-green-200 mt-0.5 uppercase tracking-tight block">Aprobado: {authorizedBy}</span>
+                              )}
+                            </button>
 
-                        if (isSplitMode) {
-                          if (splitType === 'articles') {
-                            handleConfirmSplit(tip);
-                          } else {
-                            // Equal split
-                            onPay(managingOrder.id, selectedPayment, tip, amountToPay, selectedPayment === 'Efectivo' ? parseFloat(cashReceived) : undefined);
-                            setManagingTableId(null);
-                            setTipAmount('');
-                            setNumPeople(2);
-                            setAuthorizedBy(null);
-                          }
-                        } else {
-                          onPay(managingOrder.id, selectedPayment, tip, undefined, selectedPayment === 'Efectivo' ? parseFloat(cashReceived) : undefined);
-                          setManagingTableId(null);
-                          setTipAmount('');
-                          setAuthorizedBy(null);
-                        }
-                      }
-                    }}
-                    disabled={!selectedPayment || (isSplitMode && splitType === 'articles' && splitTotal === 0)}
-                    className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 border-b-4 flex items-center justify-center space-x-3 ${
-                      selectedPayment && (!isSplitMode || (splitType === 'equal' || splitTotal > 0))
-                      ? 'bg-red-600 text-white border-red-900 hover:bg-black hover:border-slate-800' 
-                      : 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed'
-                    }`}
-                  >
-                    <Icons.CreditCard />
-                    <span>{isSplitMode ? (splitType === 'equal' ? 'COBRAR PARTE' : 'COBRAR PARCIAL') : 'COBRAR Y CERRAR'}</span>
-                  </button>
-                </div>
+                            {isSelected && isCash && (
+                              <motion.div 
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                className="mt-3 p-4 bg-red-50 border-2 border-red-100 rounded-2xl space-y-4 overflow-hidden"
+                              >
+                                <div className="flex justify-between items-end">
+                                  <div className="space-y-1">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Recibido</p>
+                                    <div className="relative">
+                                      <span className="absolute left-0 top-1/2 -translate-y-1/2 text-xl font-black text-red-300">$</span>
+                                      <input 
+                                        type="text"
+                                        inputMode="decimal"
+                                        className="w-full bg-transparent border-none outline-none pl-6 text-2xl font-black tracking-tighter text-black placeholder:text-red-100"
+                                        placeholder="0.00"
+                                        autoFocus
+                                        value={cashReceived}
+                                        onChange={(e) => {
+                                          const val = e.target.value.replace(/,/g, '.');
+                                          if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                            setCashReceived(val);
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  {cashReceived && parseFloat(cashReceived) > 0 && (
+                                    <div className="text-right">
+                                      <p className="text-[10px] font-black uppercase tracking-widest text-green-600">Cambio</p>
+                                      <p className="text-2xl font-black text-green-600 tracking-tighter">
+                                        ${Math.max(0, parseFloat(cashReceived) - required).toLocaleString()}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {(!cashReceived || parseFloat(cashReceived) < required) && (
+                                  <p className="text-[9px] font-black text-red-600 uppercase tracking-tight">
+                                    ⚠️ Ingrese el efectivo entregado para habilitar el cobro (mínimo ${required.toLocaleString()})
+                                  </p>
+                                )}
+                                
+                                <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-red-100">
+                                  {getQuickCashOptions(required).map(amount => (
+                                    <button 
+                                      key={amount}
+                                      onClick={() => setCashReceived(amount.toString())}
+                                      className="py-1.5 bg-white hover:bg-black hover:text-white rounded-lg text-[9px] font-black transition-all border border-red-100 uppercase"
+                                    >
+                                      ${amount.toLocaleString()}
+                                    </button>
+                                  ))}
+                                </div>
+                              </motion.div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Propina (Opcional)</label>
+                      <div className="flex items-center space-x-2">
+                         <div className="relative flex-grow">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                          <input 
+                            type="number"
+                            value={tipAmount}
+                            onChange={e => setTipAmount(e.target.value)}
+                            className="w-full pl-8 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:border-red-600 outline-none font-bold text-sm"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-1">
+                          {[0.10, 0.15, 0.20].map(pct => {
+                            const amountToPay = isSplitMode ? splitTotal : (managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0));
+                            return (
+                              <button
+                                key={pct}
+                                onClick={() => setTipAmount((amountToPay * pct).toFixed(2))}
+                                className="px-3 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-[10px] font-black"
+                              >
+                                {pct * 100}%
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Summary Total for Billing */}
+                    <div className="p-6 bg-black text-white rounded-2xl space-y-4 mb-4">
+                       <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Saldo Pendiente</span>
+                          <span className="text-xl font-black">${(isSplitMode ? splitTotal : (managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0))).toLocaleString()}</span>
+                       </div>
+                       {parseFloat(tipAmount) > 0 && (
+                         <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-red-400">Propina Añadida</span>
+                            <span className="text-xl font-black text-red-400">+ ${parseFloat(tipAmount).toLocaleString()}</span>
+                         </div>
+                       )}
+                       <div className="flex justify-between items-center pt-1">
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Total a Cobrar</span>
+                          <span className="text-3xl font-black tracking-tighter">
+                            ${((isSplitMode ? splitTotal : (managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0))) + (parseFloat(tipAmount) || 0)).toLocaleString()}
+                          </span>
+                       </div>
+                    </div>
+
+                    {(() => {
+                      const remainingTotal = managingOrder.total - (managingOrder.payments?.reduce((acc, p) => acc + p.amount, 0) || 0);
+                      const amountToPay = isSplitMode 
+                        ? (splitType === 'equal' ? remainingTotal / numPeople : splitTotal) 
+                        : remainingTotal;
+                      const tip = parseFloat(tipAmount) || 0;
+                      const required = amountToPay + tip;
+                      const isCashIncomplete = selectedPayment === 'Efectivo' && (isNaN(parseFloat(cashReceived)) || parseFloat(cashReceived) < required);
+
+                      return (
+                        <button 
+                          onClick={() => {
+                            if (selectedPayment) {
+                              if (selectedPayment === 'Efectivo') {
+                                const received = parseFloat(cashReceived);
+                                if (isNaN(received) || received < required) {
+                                  alert(`El cliente debe entregar al menos $${required.toLocaleString()} (Total + Propina)`);
+                                  return;
+                                }
+                              }
+
+                              if (isSplitMode) {
+                                if (splitType === 'articles') {
+                                  handleConfirmSplit(tip);
+                                } else {
+                                  // Equal split
+                                  onPay(managingOrder.id, selectedPayment, tip, amountToPay, selectedPayment === 'Efectivo' ? parseFloat(cashReceived) : undefined);
+                                  setManagingTableId(null);
+                                  setTipAmount('');
+                                  setNumPeople(2);
+                                  setAuthorizedBy(null);
+                                }
+                              } else {
+                                onPay(managingOrder.id, selectedPayment, tip, undefined, selectedPayment === 'Efectivo' ? parseFloat(cashReceived) : undefined);
+                                if (onCloseTable) {
+                                  onCloseTable(managingOrder.id);
+                                }
+                                setManagingTableId(null);
+                                setTipAmount('');
+                                setAuthorizedBy(null);
+                              }
+                            }
+                          }}
+                          disabled={!selectedPayment || (isSplitMode && splitType === 'articles' && splitTotal === 0) || isCashIncomplete}
+                          className={`w-full py-5 rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 border-b-4 flex items-center justify-center space-x-3 ${
+                            selectedPayment && (!isSplitMode || (splitType === 'equal' || splitTotal > 0)) && !isCashIncomplete
+                            ? 'bg-red-600 text-white border-red-900 hover:bg-black hover:border-slate-800' 
+                            : 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed'
+                          }`}
+                        >
+                          <Icons.CreditCard />
+                          <span>
+                            {isCashIncomplete 
+                              ? `INGRESE RECIBIDO (MÍN $${required.toLocaleString()})` 
+                              : isSplitMode 
+                                ? (splitType === 'equal' ? 'COBRAR PARTE' : 'COBRAR PARCIAL') 
+                                : 'COBRAR Y CERRAR'}
+                          </span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               <div className="p-6 bg-slate-50 flex justify-between items-center border-t border-slate-200">

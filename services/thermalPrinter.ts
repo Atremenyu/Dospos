@@ -469,7 +469,8 @@ export const printThermalTicketHTML = (
 export const computeShiftCategorySales = (
   shift: CashShift,
   ordersList?: Order[],
-  productsCatalog?: Product[]
+  productsCatalog?: Product[],
+  allShiftsList?: CashShift[]
 ): {
   categoryBreakdown: CategorySalesSummary[];
   totalArticlesSold: number;
@@ -477,6 +478,7 @@ export const computeShiftCategorySales = (
 } => {
   const orders = ordersList || storage.getOrders() || [];
   const products = productsCatalog || storage.getProducts() || [];
+  const allShifts = allShiftsList || storage.getCashShifts() || [];
 
   const shiftOpeningTime = new Date(shift.openingTime).getTime();
   let shiftClosingTime: number;
@@ -494,6 +496,21 @@ export const computeShiftCategorySales = (
       shiftClosingTime = Date.now();
     }
   }
+
+  const shiftDate = new Date(shift.openingTime);
+  const startOfShiftDay = new Date(shiftDate.getFullYear(), shiftDate.getMonth(), shiftDate.getDate(), 0, 0, 0, 0).getTime();
+  
+  const previousClosedShifts = allShifts.filter(s => 
+    s.id !== shift.id && 
+    s.status === 'closed' && 
+    new Date(s.closingTime || s.openingTime).getTime() <= shiftOpeningTime
+  ).sort((a, b) => new Date(b.closingTime || b.openingTime).getTime() - new Date(a.closingTime || a.openingTime).getTime());
+  
+  const lastClosingTime = previousClosedShifts.length > 0 && previousClosedShifts[0].closingTime
+    ? new Date(previousClosedShifts[0].closingTime).getTime()
+    : 0;
+
+  const effectiveStartTime = Math.min(shiftOpeningTime, Math.max(lastClosingTime, startOfShiftDay));
 
   const categoryMap = new Map<string, {
     category: string;
@@ -519,11 +536,11 @@ export const computeShiftCategorySales = (
     if (o.payments && o.payments.length > 0) {
       inShift = o.payments.some(p => {
         const t = new Date(p.timestamp).getTime();
-        return t >= shiftOpeningTime && t <= shiftClosingTime;
+        return t >= effectiveStartTime && t <= shiftClosingTime;
       });
     } else if (o.isPaid) {
       const t = new Date(o.date).getTime();
-      inShift = t >= shiftOpeningTime && t <= shiftClosingTime;
+      inShift = t >= effectiveStartTime && t <= shiftClosingTime;
     }
 
     if (!inShift) return;

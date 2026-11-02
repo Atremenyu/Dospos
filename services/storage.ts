@@ -39,6 +39,16 @@ const API_MAP: Record<string, string> = {
   [KEYS.EVENT_TYPE]: 'eventType',
 };
 
+function safeParse<T>(data: string | null, fallback: T): T {
+  if (!data) return fallback;
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    console.warn("Storage parse error, returning fallback:", err);
+    return fallback;
+  }
+}
+
 let lastWriteTime = 0;
 const lastKnownServerState: Record<string, string> = {};
 let activeSocket: any = null;
@@ -147,64 +157,56 @@ export const storage = {
     saveToServer(KEYS.EVENT_TYPE, settings.eventType);
   },
   getRoles: (): UserRole[] => {
-    const data = localStorage.getItem(KEYS.ROLES);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.ROLES), []);
   },
   saveRoles: (roles: UserRole[]) => {
     localStorage.setItem(KEYS.ROLES, JSON.stringify(roles));
     saveToServer(KEYS.ROLES, roles);
   },
   getProducts: (): Product[] => {
-    const data = localStorage.getItem(KEYS.PRODUCTS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.PRODUCTS), []);
   },
   saveProducts: (products: Product[]) => {
     localStorage.setItem(KEYS.PRODUCTS, JSON.stringify(products));
     saveToServer(KEYS.PRODUCTS, products);
   },
   getOrders: (): Order[] => {
-    const data = localStorage.getItem(KEYS.ORDERS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.ORDERS), []);
   },
   saveOrders: (orders: Order[]) => {
     localStorage.setItem(KEYS.ORDERS, JSON.stringify(orders));
     saveToServer(KEYS.ORDERS, orders);
   },
   getCategories: (): Category[] => {
-    const data = localStorage.getItem(KEYS.CATEGORIES);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.CATEGORIES), []);
   },
   saveCategories: (categories: Category[]) => {
     localStorage.setItem(KEYS.CATEGORIES, JSON.stringify(categories));
     saveToServer(KEYS.CATEGORIES, categories);
   },
   getTables: (): Table[] => {
-    const data = localStorage.getItem(KEYS.TABLES);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.TABLES), []);
   },
   saveTables: (tables: Table[]) => {
     localStorage.setItem(KEYS.TABLES, JSON.stringify(tables));
     saveToServer(KEYS.TABLES, tables);
   },
   getUsers: (): User[] => {
-    const data = localStorage.getItem(KEYS.USERS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.USERS), []);
   },
   saveUsers: (users: User[]) => {
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
     saveToServer(KEYS.USERS, users);
   },
   getShifts: (): Shift[] => {
-    const data = localStorage.getItem(KEYS.SHIFTS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.SHIFTS), []);
   },
   saveShifts: (shifts: Shift[]) => {
     localStorage.setItem(KEYS.SHIFTS, JSON.stringify(shifts));
     saveToServer(KEYS.SHIFTS, shifts);
   },
   getCashShifts: (): CashShift[] => {
-    const data = localStorage.getItem(KEYS.CASH_SHIFTS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.CASH_SHIFTS), []);
   },
   saveCashShifts: (shifts: CashShift[]) => {
     localStorage.setItem(KEYS.CASH_SHIFTS, JSON.stringify(shifts));
@@ -229,16 +231,14 @@ export const storage = {
     saveToServer(KEYS.EVENT_TYPE, type);
   },
   getIngredients: (): Ingredient[] => {
-    const data = localStorage.getItem(KEYS.INGREDIENTS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.INGREDIENTS), []);
   },
   saveIngredients: (ingredients: Ingredient[]) => {
     localStorage.setItem(KEYS.INGREDIENTS, JSON.stringify(ingredients));
     saveToServer(KEYS.INGREDIENTS, ingredients);
   },
   getPromotions: (): Promotion[] => {
-    const data = localStorage.getItem(KEYS.PROMOTIONS);
-    return data ? JSON.parse(data) : [];
+    return safeParse(localStorage.getItem(KEYS.PROMOTIONS), []);
   },
   savePromotions: (promotions: Promotion[]) => {
     localStorage.setItem(KEYS.PROMOTIONS, JSON.stringify(promotions));

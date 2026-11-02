@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption, User, UserRole, Promotion } from '../types';
+import { Product, CartItem, Category, PaymentMethod, Order, OrderType, TakeawayType, Table, SelectedModifier, ComboOption, User, UserRole, Promotion, CashShift } from '../types';
 import { Icons } from '../constants';
 import ModifierModal from './ModifierModal';
 import ComboModal from './ComboModal';
@@ -37,9 +37,11 @@ interface POSViewProps {
   onPay: (id: string, payment: PaymentMethod, tip?: number, amount?: number) => void;
   onCancel: (id: string) => void;
   onToggleOrders: () => void;
+  staleOpenCashShift?: CashShift | null;
   hasOpenCashShift: boolean;
   onOpenShift: () => void;
   onCloseShift: () => void;
+  onShowShiftBlockModal?: () => void;
   users: User[];
   roles: UserRole[];
   promotions?: Promotion[];
@@ -49,7 +51,7 @@ interface POSViewProps {
 const POSView: React.FC<POSViewProps> = ({ 
   products, categories, cart, orders, tables, initialTableId,
   onAddToCart, onUpdateQuantity, onUpdateNote, onCheckout, onDeliver, onUpdateItemStatus, onPay, onCancel,
-  onToggleOrders, hasOpenCashShift, onOpenShift, onCloseShift, users, roles,
+  onToggleOrders, staleOpenCashShift, hasOpenCashShift, onOpenShift, onCloseShift, onShowShiftBlockModal, users, roles,
   promotions = [], isSubmitting = false
 }) => {
   const [activeCategory, setActiveCategory] = useState<Category | 'Todos'>('Todos');
@@ -64,7 +66,7 @@ const POSView: React.FC<POSViewProps> = ({
   const [showCheckout, setShowCheckout] = useState(false);
   const [cartExpanded, setCartExpanded] = useState(false);
   const [cashReceived, setCashReceived] = useState<string>('');
-  const [payLater, setPayLater] = useState(false);
+  const [payLater, setPayLater] = useState(true);
   const [authorizedBy, setAuthorizedBy] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
@@ -85,6 +87,12 @@ const POSView: React.FC<POSViewProps> = ({
   }, [showCheckout]);
 
   const handleProductClick = (product: Product) => {
+    if (staleOpenCashShift || !hasOpenCashShift) {
+      if (onShowShiftBlockModal) onShowShiftBlockModal();
+      else if (staleOpenCashShift) onCloseShift();
+      else onOpenShift();
+      return;
+    }
     if (product.hasCombo) {
       setPendingComboProduct(product);
     } else if (product.modifierGroups && product.modifierGroups.length > 0) {
@@ -96,6 +104,12 @@ const POSView: React.FC<POSViewProps> = ({
 
   const handleComboConfirm = (isCombo: boolean, selectedOptions: ComboOption[]) => {
     setPendingComboProduct(null);
+    if (staleOpenCashShift || !hasOpenCashShift) {
+      if (onShowShiftBlockModal) onShowShiftBlockModal();
+      else if (staleOpenCashShift) onCloseShift();
+      else onOpenShift();
+      return;
+    }
     if (pendingComboProduct?.modifierGroups && pendingComboProduct.modifierGroups.length > 0) {
         setPendingModifierProduct(pendingComboProduct);
         setSelectedIsComboForModifier(isCombo);
@@ -103,10 +117,17 @@ const POSView: React.FC<POSViewProps> = ({
     } else {
         onAddToCart(pendingComboProduct!, undefined, undefined, isCombo, selectedOptions);
     }
-  }
+  };
 
   const handleModifierConfirm = (selectedModifiers: SelectedModifier[], note: string) => {
     if (pendingModifierProduct) {
+      if (staleOpenCashShift || !hasOpenCashShift) {
+        if (onShowShiftBlockModal) onShowShiftBlockModal();
+        else if (staleOpenCashShift) onCloseShift();
+        else onOpenShift();
+        setPendingModifierProduct(null);
+        return;
+      }
       onAddToCart(pendingModifierProduct, selectedModifiers, note, selectedIsComboForModifier, pendingComboOptionsForModifier);
       setPendingModifierProduct(null);
       setSelectedIsComboForModifier(false);
@@ -121,19 +142,22 @@ const POSView: React.FC<POSViewProps> = ({
       if (selectedTable) {
         setTable(selectedTable.name);
         setOrderType('dine-in');
+        setPayLater(true);
         setShowCheckout(false); 
       }
     }
   }, [initialTableId, tables]);
 
-  // Handle automatic payment for delivery apps
+  // Handle automatic payment for delivery apps and payLater default by orderType
   useEffect(() => {
     if (orderType === 'takeaway') {
       if (takeawayType === 'uber') setPayment('Uber');
       else if (takeawayType === 'didi') setPayment('Didi');
       else if (payment === 'Uber' || payment === 'Didi') setPayment('Efectivo');
+      setPayLater(false);
     } else {
       if (payment === 'Uber' || payment === 'Didi') setPayment('Efectivo');
+      setPayLater(true);
     }
   }, [takeawayType, orderType]);
 
@@ -212,25 +236,36 @@ const POSView: React.FC<POSViewProps> = ({
   const existingOrder = useMemo(() => {
     if (orderType !== 'dine-in' || !table.trim()) return null;
     const tableLower = table.trim().toLowerCase();
-    return orders.find(o => o.table && o.table.trim().toLowerCase() === tableLower && o.type === 'dine-in' && !o.isPaid && o.status !== 'cancelled');
+    return orders.find(o => o.table && o.table.trim().toLowerCase() === tableLower && o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled');
   }, [orders, table, orderType]);
+
+  const isAddingToExistingTable = orderType === 'dine-in' && Boolean(existingOrder);
+  const effectivePayLater = isAddingToExistingTable ? true : payLater;
 
   const handleCheckoutSubmit = () => {
     if (isSubmitting || isSubmittingLocal) return;
+
+    if (staleOpenCashShift || !hasOpenCashShift) {
+      if (onShowShiftBlockModal) onShowShiftBlockModal();
+      else if (staleOpenCashShift) onCloseShift();
+      else onOpenShift();
+      return;
+    }
 
     if (orderType === 'dine-in' && !table.trim()) {
       alert('Por favor ingrese el número o nombre de la mesa.');
       return;
     }
 
-    // Basic validation for cash payments in POSView
+    // Strict validation for cash payments only when paying immediately (not for open tabs or delivery apps)
     const tip = parseFloat(tipAmount) || 0;
-    if (payment === 'Efectivo' && orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi' && !payLater) {
+    const isAutoPlatform = orderType === 'takeaway' && (takeawayType === 'uber' || takeawayType === 'didi');
+    if (!effectivePayLater && !isAutoPlatform && payment === 'Efectivo') {
       const received = parseFloat(cashReceived);
       const required = total + tip;
       if (isNaN(received) || received < required) {
         const diff = required - (isNaN(received) ? 0 : received);
-        alert(`Monto insuficiente. Faltan $${diff.toLocaleString()} para cubrir el total + propina de $${required.toLocaleString()}`);
+        alert(`Monto en efectivo insuficiente. Ingrese el monto entregado por el cliente (mínimo $${required.toLocaleString()}${diff > 0 && !isNaN(received) ? `, faltan $${diff.toLocaleString()}` : ''}).`);
         return;
       }
     }
@@ -238,15 +273,15 @@ const POSView: React.FC<POSViewProps> = ({
     setIsSubmittingLocal(true);
 
     try {
-      const parsedCashReceived = payment === 'Efectivo' && cashReceived ? parseFloat(cashReceived) : undefined;
+      const parsedCashReceived = (!effectivePayLater && payment === 'Efectivo' && cashReceived) ? parseFloat(cashReceived) : undefined;
       onCheckout(
         client, 
         table, 
-        payment, 
+        isAddingToExistingTable ? 'Pendiente' : (effectivePayLater ? 'Pendiente' : payment), 
         orderType, 
         orderType === 'takeaway' ? takeawayType : undefined, 
-        tip, 
-        payLater, 
+        (isAddingToExistingTable || effectivePayLater) ? 0 : tip, 
+        effectivePayLater, 
         orderType === 'takeaway' && takeawayType === 'delivery' ? address : undefined,
         parsedCashReceived,
         effectiveDiscount > 0 ? effectiveDiscount : undefined,
@@ -263,7 +298,7 @@ const POSView: React.FC<POSViewProps> = ({
       setTakeawayType('local');
       setShowCheckout(false);
       setCashReceived('');
-      setPayLater(false);
+      setPayLater(true);
       setAuthorizedBy(null);
       setSelectedPromoId(null);
     } finally {
@@ -527,8 +562,32 @@ const POSView: React.FC<POSViewProps> = ({
           })()}
         `}
       >
+        {/* Blocking Overlay if stale previous day shift is unclosed */}
+        {staleOpenCashShift && (
+          <div className="absolute inset-0 z-[70] bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center">
+            <div className="bg-amber-500/20 p-6 rounded-full mb-6 border border-amber-500/30">
+              <Icons.Clock size={48} className="text-amber-500" />
+            </div>
+            <h3 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter mb-4 leading-tight">
+              Turno Anterior Sin Cerrar
+            </h3>
+            <p className="text-slate-300 font-bold mb-3 max-w-sm uppercase text-xs tracking-wider leading-relaxed">
+              Existe un turno abierto del día {new Date(staleOpenCashShift.openingTime).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })} a cargo de {staleOpenCashShift.userName}.
+            </p>
+            <p className="text-amber-400 font-semibold mb-8 max-w-xs text-[11px] leading-relaxed">
+              Para garantizar que el corte de hoy sea exacto y no se empalmen ventas, debes cerrar el turno anterior antes de iniciar operaciones.
+            </p>
+            <button 
+              onClick={onShowShiftBlockModal || onCloseShift}
+              className="px-8 py-4 bg-amber-500 text-black rounded-[2rem] font-black uppercase tracking-widest text-sm hover:bg-amber-400 transition-all shadow-2xl shadow-amber-500/20 active:scale-95"
+            >
+              Hacer Corte y Cerrar Turno Anterior
+            </button>
+          </div>
+        )}
+
         {/* Blocking Overlay if no shift */}
-        {!hasOpenCashShift && (
+        {!staleOpenCashShift && !hasOpenCashShift && (
           <div className="absolute inset-0 z-[60] bg-slate-900/95 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center">
             <div className="bg-red-600/20 p-6 rounded-full mb-6 border border-red-600/30">
               <Icons.Lock size={48} className="text-red-500" />
@@ -540,7 +599,7 @@ const POSView: React.FC<POSViewProps> = ({
               Debes realizar la apertura de caja para comenzar a tomar pedidos.
             </p>
             <button 
-              onClick={onOpenShift}
+              onClick={onShowShiftBlockModal || onOpenShift}
               className="px-10 py-5 bg-red-600 text-white rounded-[2rem] font-black uppercase tracking-widest text-sm hover:bg-red-700 transition-all shadow-2xl shadow-red-600/20 active:scale-95"
             >
               Realizar Apertura
@@ -579,14 +638,14 @@ const POSView: React.FC<POSViewProps> = ({
             </div>
           </div>
           <div className="flex items-center space-x-3">
-            {hasOpenCashShift && !showCheckout && (
+            {(hasOpenCashShift || staleOpenCashShift) && !showCheckout && (
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
                   onCloseShift();
                 }}
-                className="p-2 text-slate-400 hover:text-red-600 transition"
-                title="Cerrar Caja"
+                className={`p-2 transition ${staleOpenCashShift ? 'text-amber-500 hover:text-amber-400 animate-pulse' : 'text-slate-400 hover:text-red-600'}`}
+                title={staleOpenCashShift ? "Cerrar Turno Anterior" : "Cerrar Caja"}
               >
                 <Icons.Lock size={20} />
               </button>
@@ -767,7 +826,7 @@ const POSView: React.FC<POSViewProps> = ({
                           <div className="grid grid-cols-4 gap-2">
                             {tables.map(t => {
                               const isSelected = table === t.name;
-                              const hasActiveOrder = orders.some(o => o.table === t.name && o.type === 'dine-in' && !o.isPaid);
+                              const hasActiveOrder = orders.some(o => o.table?.trim().toLowerCase() === t.name.trim().toLowerCase() && o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled');
                               
                               return (
                                 <button
@@ -851,43 +910,67 @@ const POSView: React.FC<POSViewProps> = ({
                     </div>
                   )}
 
-                  {((orderType === 'dine-in') || (orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi')) && (
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">¿Cuándo se Paga?</h4>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPayLater(false)}
-                          className={`py-3 px-2 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 ${
-                            !payLater
-                            ? 'border-red-600 bg-red-50 text-red-700'
-                            : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'
-                          }`}
-                        >
-                          <div className="p-1.5 rounded-lg bg-red-600 text-white">
-                            <Icons.DollarSign size={14} />
-                          </div>
-                          <span>Pagar Ahora</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPayLater(true)}
-                          className={`py-3 px-2 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 ${
-                            payLater
-                            ? 'border-amber-500 bg-amber-50 text-amber-700'
-                            : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'
-                          }`}
-                        >
-                          <div className="p-1.5 rounded-lg bg-amber-500 text-white">
-                            <Icons.Clock size={14} />
-                          </div>
-                          <span>Al Entregar</span>
-                        </button>
+                  {isAddingToExistingTable ? (
+                    <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-2xl space-y-2">
+                      <div className="flex items-center space-x-2 text-amber-900">
+                        <Icons.Clock size={18} />
+                        <span className="text-xs font-black uppercase tracking-tight">Mesa con Cuenta Abierta ({table})</span>
                       </div>
+                      <p className="text-[11px] font-bold text-amber-800 leading-tight">
+                        Los nuevos items se enviarán a cocina de inmediato y se añadirán a la cuenta existente para liquidarse al cerrar la mesa.
+                      </p>
+                      {existingOrder && (
+                        <div className="pt-2 border-t border-amber-200/60 space-y-1">
+                          <div className="flex justify-between text-[10px] font-bold text-amber-800 uppercase">
+                            <span>Consumo acumulado previo:</span>
+                            <span>${existingOrder.total.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between text-xs font-black text-amber-950 uppercase">
+                            <span>Nuevos items por agregar:</span>
+                            <span>+${total.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ) : (
+                    <>
+                      {((orderType === 'dine-in') || (orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi')) && (
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">¿Cuándo se Paga?</h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPayLater(true)}
+                              className={`py-3 px-2 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 ${
+                                payLater
+                                ? 'border-amber-500 bg-amber-50 text-amber-700'
+                                : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'
+                              }`}
+                            >
+                              <div className="p-1.5 rounded-lg bg-amber-500 text-white">
+                                <Icons.Clock size={14} />
+                              </div>
+                              <span>{orderType === 'dine-in' ? 'Al Cerrar Mesa' : 'Al Entregar'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPayLater(false)}
+                              className={`py-3 px-2 rounded-xl border-2 text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center space-y-1 ${
+                                !payLater
+                                ? 'border-red-600 bg-red-50 text-red-700'
+                                : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'
+                              }`}
+                            >
+                              <div className="p-1.5 rounded-lg bg-red-600 text-white">
+                                <Icons.DollarSign size={14} />
+                              </div>
+                              <span>Pagar Ahora</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
-                  {((orderType === 'dine-in') || (orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi')) && !payLater && (
+                      {((orderType === 'dine-in') || (orderType === 'takeaway' && takeawayType !== 'uber' && takeawayType !== 'didi')) && !payLater && (
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Forma de Pago</h4>
                       <div className="grid grid-cols-1 gap-2">
@@ -1116,6 +1199,8 @@ const POSView: React.FC<POSViewProps> = ({
                       </div>
                     </div>
                   )}
+                  </>
+                )}
                 </div>
 
                 <div className="bg-black text-white p-6 rounded-3xl shadow-2xl space-y-5 border-t-4 border-red-600">
@@ -1134,15 +1219,19 @@ const POSView: React.FC<POSViewProps> = ({
                            <span>-${effectiveDiscount.toLocaleString()}</span>
                          </div>
                        )}
-                       {parseFloat(tipAmount) > 0 && (
+                       {!effectivePayLater && parseFloat(tipAmount) > 0 && (
                          <div className="flex justify-between items-center text-[10px] font-black text-red-400 uppercase mb-2">
                            <span>Propina</span>
                            <span>+ ${parseFloat(tipAmount).toLocaleString()}</span>
                          </div>
                        )}
                        <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Total a Pagar</span>
-                          <div className="text-4xl font-black tracking-tighter">${(total + (parseFloat(tipAmount) || 0)).toLocaleString()}</div>
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-60">
+                            {effectivePayLater ? 'Total a Cargar en Cuenta' : 'Total a Pagar'}
+                          </span>
+                          <div className="text-4xl font-black tracking-tighter">
+                            ${(total + (!effectivePayLater ? (parseFloat(tipAmount) || 0) : 0)).toLocaleString()}
+                          </div>
                        </div>
                     </div>
                    <button 
@@ -1159,8 +1248,12 @@ const POSView: React.FC<POSViewProps> = ({
                     ) : (
                       <span>
                         {orderType === 'dine-in' 
-                          ? (existingOrder ? 'AÑADIR A MESA' : 'ABRIR CUENTA MESA') 
-                          : payLater 
+                          ? (existingOrder 
+                              ? 'AÑADIR A MESA (ENVIAR A COCINA)' 
+                              : effectivePayLater 
+                                ? 'ABRIR CUENTA MESA (ENVIAR A COCINA)' 
+                                : 'PAGAR AHORA Y ENVIAR') 
+                          : effectivePayLater 
                             ? 'ENVIAR PEDIDO (POR COBRAR)' 
                             : 'FINALIZAR COBRO'}
                       </span>
