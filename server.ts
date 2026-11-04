@@ -497,11 +497,8 @@ async function setupVite() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("/", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-    // In Express 5, '*' or /.*/ or '*all' ensures all client-side navigation loads index.html
-    app.get("*", (req, res) => {
+    // SPA catch-all middleware in Express 5 without path-to-regexp string parsing
+    app.use((req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
