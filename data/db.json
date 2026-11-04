@@ -422,6 +422,14 @@
   ],
   "cashShifts": [
     {
+      "id": "1788996835822",
+      "userId": "admin-1",
+      "userName": "Admin",
+      "openingTime": "2026-09-09T23:33:55.822Z",
+      "initialFund": 100,
+      "status": "open"
+    },
+    {
       "id": "1788882170546",
       "userId": "admin-1",
       "userName": "Admin",
@@ -444,14 +452,6 @@
       "differenceTransferencia": 0,
       "expectedOtros": 0,
       "expectedCourtesy": 0
-    },
-    {
-      "id": "1788996835822",
-      "userId": "admin-1",
-      "userName": "Admin",
-      "openingTime": "2026-09-09T23:33:55.822Z",
-      "initialFund": 100,
-      "status": "open"
     }
   ],
   "roles": [

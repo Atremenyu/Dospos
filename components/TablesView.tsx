@@ -156,7 +156,7 @@ const TablesView: React.FC<TablesViewProps> = ({
                />
              </div>
              
-             <div className="flex space-x-4">
+             <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
                    <div className="w-3 h-3 rounded-full bg-slate-200"></div>
                    <span className="text-[10px] font-black uppercase text-slate-500">Libre</span>
@@ -165,6 +165,36 @@ const TablesView: React.FC<TablesViewProps> = ({
                    <div className="w-3 h-3 rounded-full bg-red-600"></div>
                    <span className="text-[10px] font-black uppercase text-slate-500">Ocupada</span>
                 </div>
+                <div className="flex items-center space-x-2">
+                   <div className="w-3 h-3 rounded-full bg-emerald-600"></div>
+                   <span className="text-[10px] font-black uppercase text-emerald-600">Pagada</span>
+                </div>
+                {(() => {
+                  const paidOccupiedOrders = orders.filter(o => 
+                    o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled' && (o.isPaid || (o.payments?.reduce((acc, p) => acc + p.amount, 0) || 0) >= o.total)
+                  );
+                  if (paidOccupiedOrders.length === 0) return null;
+                  return (
+                    <button
+                      onClick={() => {
+                        triggerConfirm(
+                          'Liberar Mesas Pagadas',
+                          `¿Deseas liberar todas las ${paidOccupiedOrders.length} mesas que ya fueron pagadas?`,
+                          () => {
+                            paidOccupiedOrders.forEach(o => {
+                              if (onCloseTable) onCloseTable(o.id);
+                              else onDeliver(o.id);
+                            });
+                          }
+                        );
+                      }}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition shadow-sm active:scale-95 flex items-center space-x-1"
+                    >
+                      <Icons.Check size={12} />
+                      <span>Liberar {paidOccupiedOrders.length} Pagadas</span>
+                    </button>
+                  );
+                })()}
              </div>
           </div>
         </header>

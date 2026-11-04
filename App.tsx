@@ -1069,6 +1069,33 @@ const App: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
+    // Auto-close any dine-in orders that were paid during this shift and free the tables
+    setOrders(prevOrders => {
+      let changed = false;
+      const updated = prevOrders.map(o => {
+        if (o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled') {
+          const totalPaid = o.payments?.reduce((acc, p) => acc + p.amount, 0) || 0;
+          if (totalPaid >= o.total || o.isPaid) {
+            changed = true;
+            return {
+              ...o,
+              closedAt: closingTime,
+              status: (o.status === 'pending' || o.status === 'preparing') ? o.status : ('delivered' as const),
+              updatedAt: new Date().toISOString()
+            };
+          }
+        }
+        return o;
+      });
+      if (changed) {
+        storage.saveOrders(updated);
+      }
+      return updated;
+    });
+
+    // Free any tables that were occupied
+    setTables(prevTables => prevTables.map(t => ({ ...t, isOccupied: false })));
+
     setCashShifts(prev => prev.map(s => s.id === shiftToClose.id ? closedShift : s));
     setShowClosingModal(false);
 
