@@ -210,7 +210,8 @@ function mergeOrders(existing: any[], incoming: any[]): any[] {
 // Entities that are purely additive audit logs and merged by item ID
 const MANAGED_BY_ID_KEYS = [
   "shifts", 
-  "cashShifts"
+  "cashShifts",
+  "staffConsumptions"
 ];
 
 function deduplicateProducts(products: any[]): any[] {
@@ -483,6 +484,26 @@ app.post("/api/db/reset", (req, res) => {
   saveDbToDisk();
   broadcast({ type: "RESET" });
   res.json({ success: true });
+});
+
+// Dedicated endpoints for Staff Consumptions
+app.get("/api/staff-consumptions", (req, res) => {
+  const consumptions = Array.isArray(dbState.staffConsumptions) ? dbState.staffConsumptions : [];
+  res.json(consumptions);
+});
+
+app.post("/api/staff-consumptions", (req, res) => {
+  const newConsumption = req.body;
+  if (!newConsumption || typeof newConsumption !== "object" || !newConsumption.id) {
+    return res.status(400).json({ error: "Invalid consumption data" });
+  }
+
+  const existing = Array.isArray(dbState.staffConsumptions) ? dbState.staffConsumptions : [];
+  const updated = [newConsumption, ...existing.filter((c: any) => c.id !== newConsumption.id)];
+  dbState.staffConsumptions = updated;
+  saveDbToDisk();
+  broadcast({ type: "UPDATE", key: "staffConsumptions", data: updated });
+  res.status(201).json({ success: true, data: newConsumption });
 });
 
 // Vite middleware or production static serving

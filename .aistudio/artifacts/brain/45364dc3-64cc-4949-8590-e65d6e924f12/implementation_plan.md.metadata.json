@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan actualizado documentando la corrección del flujo de adición de items a mesas abiertas o previamente pagadas sin exigir cobro inmediato.",
-  "updatedAt":  "2026-10-30T22:05:45.451179774Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Plan arquitectónico y de implementación para el Módulo Independiente de Consumo Interno y Cortesías de Staff (Opción 2), desacoplado del flujo de caja, con impacto en inventario, trazabilidad de costo/precio, validación de identidad por PIN/Staff y modalidades individual y masiva.",
+  "updatedAt": "2026-11-04T23:00:05.274529965Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

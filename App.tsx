@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, Order, ViewState, CartItem, PaymentMethod, Category, Table, OrderType, TakeawayType, OrderStatus, User, Shift, SelectedModifier, CashShift, UserRole, PaymentRecord, StoreSettings, AdminTabType, ComboOption, Ingredient, Promotion } from './types';
+import { Product, Order, ViewState, CartItem, PaymentMethod, Category, Table, OrderType, TakeawayType, OrderStatus, User, Shift, SelectedModifier, CashShift, UserRole, PaymentRecord, StoreSettings, AdminTabType, ComboOption, Ingredient, Promotion, StaffConsumption } from './types';
 import { storage, generateSecureId } from './services/storage';
 import { INITIAL_PRODUCTS, INITIAL_CATEGORIES, INITIAL_TABLES, INITIAL_USERS, ROLES, Icons } from './constants';
 import POSView from './components/POSView';
@@ -16,6 +16,7 @@ import CashOpeningModal from './components/CashOpeningModal';
 import CashClosingModal from './components/CashClosingModal';
 import { printCashShiftTicketHTML, computeShiftCategorySales } from './services/thermalPrinter';
 import AdminCRM from './components/AdminCRM';
+import { StaffConsumptionView } from './components/StaffConsumptionView';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('pos');
@@ -30,6 +31,7 @@ const App: React.FC = () => {
   const [cashShifts, setCashShifts] = useState<CashShift[]>([]);
   const [roles, setRoles] = useState<UserRole[]>(ROLES);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [staffConsumptions, setStaffConsumptions] = useState<StaffConsumption[]>([]);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
@@ -195,6 +197,7 @@ const App: React.FC = () => {
       const savedCashShifts = initializeKey('cashShifts', storage.getCashShifts(), []);
       const savedRoles = initializeKey('roles', storage.getRoles(), ROLES);
       const savedPromotions = initializeKey('promotions', storage.getPromotions() || [], []);
+      const savedStaffConsumptions = initializeKey('staffConsumptions', storage.getStaffConsumptions() || [], []);
       const savedSettings = initializeKey('settings', storage.getSettings(), null);
 
       const hasStoredProducts = (serverHasData && serverState['products'] !== undefined) || localStorage.getItem('dospos_productos') !== null;
@@ -249,6 +252,7 @@ const App: React.FC = () => {
       setCashShifts(savedCashShifts);
       setRoles(savedRoles.length > 0 ? savedRoles : ROLES);
       setPromotions(savedPromotions);
+      setStaffConsumptions(savedStaffConsumptions);
       
       if (savedSettings) {
         setSettings(savedSettings);
@@ -581,6 +585,19 @@ const App: React.FC = () => {
       } else if (key === "promotions") {
         setPromotions((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_promociones", JSON.stringify(data));
+      } else if (key === "staffConsumptions") {
+        if (Array.isArray(data)) {
+          setStaffConsumptions((prev) => {
+            const map = new Map<string, StaffConsumption>();
+            prev.forEach(c => { if (c && c.id) map.set(c.id, c); });
+            data.forEach((c: StaffConsumption) => { if (c && c.id) map.set(c.id, c); });
+            const merged = Array.from(map.values()).sort((a, b) => 
+              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+            );
+            localStorage.setItem("dospos_staff_consumptions", JSON.stringify(merged));
+            return merged;
+          });
+        }
       } else if (key === "settings") {
         setSettings((prev) => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
         localStorage.setItem("dospos_store_settings", JSON.stringify(data));
@@ -760,6 +777,9 @@ const App: React.FC = () => {
   const canAccessView = (v: ViewState) => {
     if (!currentUser) return false;
     if (currentUser.role?.toLowerCase() === 'admin') return true;
+    if (v === 'staff') {
+      return currentUserRole ? (currentUserRole.permissions.includes('staff') || currentUserRole.permissions.includes('pos')) : true;
+    }
     if (!currentUserRole) return true;
     return currentUserRole.permissions.includes(v);
   };
@@ -1069,34 +1089,50 @@ const App: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    // Auto-close any dine-in orders that were paid during this shift and free the tables
+    // Robust closure of dine-in orders:
+    // Any dine-in order that belongs to this shift (date <= closingTime) or is paid or open at shift close must be cleanly closed.
+    const shiftStartTime = shiftToClose.openingTime ? new Date(shiftToClose.openingTime).getTime() : 0;
+    const shiftEndTime = new Date(closingTime).getTime();
+
+    let updatedOrdersList: Order[] = [];
     setOrders(prevOrders => {
       let changed = false;
       const updated = prevOrders.map(o => {
         if (o.type === 'dine-in' && !o.closedAt && o.status !== 'cancelled') {
+          const orderTime = o.date ? new Date(o.date).getTime() : 0;
+          const belongsToShift = orderTime <= shiftEndTime || (shiftStartTime > 0 && orderTime >= (shiftStartTime - 86400000));
           const totalPaid = o.payments?.reduce((acc, p) => acc + p.amount, 0) || 0;
-          if (totalPaid >= o.total || o.isPaid) {
+          const isFullyPaid = totalPaid >= o.total || o.isPaid;
+
+          if (belongsToShift || isFullyPaid) {
             changed = true;
             return {
               ...o,
+              isPaid: isFullyPaid || totalPaid > 0 ? o.isPaid : false,
               closedAt: closingTime,
-              status: (o.status === 'pending' || o.status === 'preparing') ? o.status : ('delivered' as const),
+              status: (o.status === 'pending' || o.status === 'preparing') ? ('delivered' as const) : o.status,
               updatedAt: new Date().toISOString()
             };
           }
         }
         return o;
       });
-      if (changed) {
-        storage.saveOrders(updated);
-      }
+      updatedOrdersList = updated;
+      storage.saveOrders(updated);
       return updated;
     });
 
-    // Free any tables that were occupied
-    setTables(prevTables => prevTables.map(t => ({ ...t, isOccupied: false })));
+    // Ensure all tables are marked as free (isOccupied: false) and persisted to both localStorage and backend
+    const freedTables = tables.map(t => ({ ...t, isOccupied: false }));
+    setTables(freedTables);
+    storage.saveTables(freedTables);
 
-    setCashShifts(prev => prev.map(s => s.id === shiftToClose.id ? closedShift : s));
+    // Save and persist closed cash shift
+    setCashShifts(prev => {
+      const updatedShifts = prev.map(s => s.id === shiftToClose.id ? closedShift : s);
+      storage.saveCashShifts(updatedShifts);
+      return updatedShifts;
+    });
     setShowClosingModal(false);
 
     // Mandar a imprimir el ticket térmico del corte de caja inmediatamente con el objeto calculado
@@ -1270,6 +1306,69 @@ const App: React.FC = () => {
       });
       return newIngredients;
     });
+  };
+
+  const handleSaveStaffConsumption = async (consumptionData: Omit<StaffConsumption, 'id' | 'date'>): Promise<StaffConsumption> => {
+    const consumption: StaffConsumption = {
+      ...consumptionData,
+      id: `sc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      date: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // 1. Discount stock (ingredients if recipes exist, and direct stock if configured)
+    setIngredients(prev => {
+      const newIngredients = [...prev];
+      consumption.items.forEach(item => {
+        const prod = products.find(p => p.id === item.productId);
+        if (prod?.recipe) {
+          prod.recipe.forEach(ri => {
+            const idx = newIngredients.findIndex(i => i.id === ri.ingredientId);
+            if (idx !== -1) {
+              newIngredients[idx] = {
+                ...newIngredients[idx],
+                stock: newIngredients[idx].stock - (ri.quantity * item.quantity),
+                updatedAt: new Date().toISOString()
+              };
+            }
+          });
+        }
+      });
+      storage.saveIngredients(newIngredients);
+      return newIngredients;
+    });
+
+    // Also discount direct product stock if product has direct stock tracked
+    setProducts(prev => {
+      const updated = prev.map(p => {
+        const consumed = consumption.items.find(i => i.productId === p.id);
+        if (consumed && p.stock !== undefined) {
+          return {
+            ...p,
+            stock: Math.max(0, p.stock - consumed.quantity),
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return p;
+      });
+      storage.saveProducts(updated);
+      return updated;
+    });
+
+    // 2. Persist Staff Consumption record in autonomous audit log (Zero impact on orders / cash balance)
+    setStaffConsumptions(prev => {
+      const updated = [consumption, ...prev.filter(c => c.id !== consumption.id)];
+      storage.saveStaffConsumptions(updated);
+      return updated;
+    });
+
+    // 3. User feedback
+    triggerNativeNotification(
+      '☕ Consumo de Staff Registrado',
+      `${consumption.beneficiaryName}: ${consumption.totalItemsCount} artículos descontados de inventario.`
+    );
+
+    return consumption;
   };
 
   const resolveOrderStatus = (items: CartItem[], currentStatus: OrderStatus): OrderStatus => {
@@ -2051,6 +2150,7 @@ const App: React.FC = () => {
               setIngredients={setIngredients}
               promotions={promotions}
               onUpdatePromotions={setPromotions}
+              staffConsumptions={staffConsumptions}
             />
           )}
           {view === 'dispatch' && canAccessView('dispatch') && (
@@ -2092,7 +2192,23 @@ const App: React.FC = () => {
               roles={roles}
             />
           )}
-          {!['pos', 'central', 'dispatch', 'tables'].includes(view) && (
+          {view === 'staff' && canAccessView('staff') && (
+            <StaffConsumptionView
+              products={products}
+              categories={categories}
+              users={users}
+              currentUser={currentUser!}
+              activeCashShiftId={currentOpenCashShift?.id}
+              settings={settings}
+              staffConsumptions={staffConsumptions}
+              onSaveConsumption={handleSaveStaffConsumption}
+              onNavigateToAdmin={() => {
+                setView('central');
+                setAdminView('staff_consumptions');
+              }}
+            />
+          )}
+          {!['pos', 'central', 'dispatch', 'tables', 'staff'].includes(view) && (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-900 text-white min-h-[500px]">
               <Icons.AlertTriangle className="w-16 h-16 text-amber-400 mb-4" />
               <h3 className="text-xl font-black uppercase tracking-tight mb-2">Vista no disponible ({view})</h3>

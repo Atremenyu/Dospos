@@ -1,15 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { CashShift } from '../types';
+import { CashShift, StaffConsumption } from '../types';
 import { Icons } from '../constants';
 import { printCashShiftTicketHTML, computeShiftCategorySales } from '../services/thermalPrinter';
 
 interface CashShiftViewProps {
   cashShifts: CashShift[];
+  staffConsumptions?: StaffConsumption[];
   onOpenSettings: () => void;
   restaurantName?: string;
 }
 
-const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, onOpenSettings, restaurantName }) => {
+const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, staffConsumptions = [], onOpenSettings, restaurantName }) => {
   const [cashSearch, setCashSearch] = useState('');
   const [cashSort, setCashSort] = useState<{ field: keyof CashShift | 'date'; order: 'asc' | 'desc' }>({ field: 'date', order: 'desc' });
   const [expandedCashId, setExpandedCashId] = useState<string | null>(null);
@@ -326,6 +327,75 @@ const CashShiftView: React.FC<CashShiftViewProps> = ({ cashShifts, onOpenSetting
                                     </div>
                                   ))}
                                 </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Staff Consumption Audit Section (Informative, zero impact on cash balance) */}
+                          {(() => {
+                            const shiftConsumptions = staffConsumptions.filter(c => {
+                              if (c.cashShiftId && c.cashShiftId === shift.id) return true;
+                              const cDate = new Date(c.date).getTime();
+                              const sOpen = new Date(shift.openingTime).getTime();
+                              const sClose = shift.closingTime ? new Date(shift.closingTime).getTime() : Date.now();
+                              return cDate >= sOpen && cDate <= sClose;
+                            });
+
+                            const totalCost = shiftConsumptions.reduce((s, c) => s + c.totalCostValue, 0);
+                            const totalRetail = shiftConsumptions.reduce((s, c) => s + c.totalRetailValue, 0);
+                            const totalItems = shiftConsumptions.reduce((s, c) => s + c.totalItemsCount, 0);
+
+                            return (
+                              <div className="pt-4 border-t border-slate-200/60">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                                      Consumo de Staff y Cortesías del Turno
+                                    </h4>
+                                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[8px] font-black uppercase rounded tracking-wider">
+                                      Informativo • Sin Impacto en Caja
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] font-bold text-slate-500">
+                                    {shiftConsumptions.length} despachos ({totalItems} artículos)
+                                  </span>
+                                </div>
+
+                                {shiftConsumptions.length === 0 ? (
+                                  <p className="text-xs text-slate-400 italic">No se registraron consumos de staff durante este turno.</p>
+                                ) : (
+                                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                                        <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Unidades Despachadas</span>
+                                        <span className="text-lg font-black text-slate-800">{totalItems} pzas</span>
+                                      </div>
+                                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                                        <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 block">Costo Merma Real</span>
+                                        <span className="text-lg font-black text-emerald-700">${totalCost.toLocaleString()}</span>
+                                      </div>
+                                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                                        <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Valor Comercial Venta</span>
+                                        <span className="text-lg font-black text-slate-500">${totalRetail.toLocaleString()}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                                      {shiftConsumptions.map(c => (
+                                        <div key={c.id} className="flex justify-between items-center text-xs py-1 border-b border-slate-200/50">
+                                          <div>
+                                            <span className="font-bold text-slate-800">{c.beneficiaryName}</span>
+                                            <span className="text-slate-400 text-[10px] ml-2">({c.reason})</span>
+                                            <span className="text-slate-500 text-[10px] ml-2 font-mono">{c.items.map(i => `${i.quantity}x ${i.productName}`).join(', ')}</span>
+                                          </div>
+                                          <div className="text-right shrink-0">
+                                            <span className="font-bold text-emerald-700">${c.totalCostValue.toLocaleString()} costo</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}

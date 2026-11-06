@@ -1,12 +1,13 @@
 
 import React, { useState } from 'react';
 import { Icons } from '../constants';
-import { Product, Table, Order, CashShift, User, UserRole, Shift, StoreSettings, AdminTabType, Ingredient, Promotion } from '../types';
+import { Product, Table, Order, CashShift, User, UserRole, Shift, StoreSettings, AdminTabType, Ingredient, Promotion, StaffConsumption } from '../types';
 import ProductManagement from './ProductManagement';
 import HistoryView from './HistoryView';
 import CashShiftView from './CashShiftView';
 import PromotionsManager from './PromotionsManager';
 import DashboardView from './DashboardView';
+import { AdminStaffConsumptionsView } from './AdminStaffConsumptionsView';
 
 interface AdminCRMProps {
   products: Product[];
@@ -34,6 +35,7 @@ interface AdminCRMProps {
   setIngredients: React.Dispatch<React.SetStateAction<Ingredient[]>>;
   promotions: Promotion[];
   onUpdatePromotions: (promotions: Promotion[]) => void;
+  staffConsumptions?: StaffConsumption[];
 }
 
 const AdminCRM: React.FC<AdminCRMProps> = ({
@@ -61,7 +63,8 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
   ingredients,
   setIngredients,
   promotions,
-  onUpdatePromotions
+  onUpdatePromotions,
+  staffConsumptions = []
 }) => {
 
   // Integrated ProductManagement wrapper or just pass the props
@@ -248,6 +251,7 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
           <div className="h-full animate-in fade-in slide-in-from-right-4 duration-500">
             <CashShiftView 
               cashShifts={cashShifts}
+              staffConsumptions={staffConsumptions}
               onOpenSettings={() => setActiveTab('general')}
               restaurantName={settings.name}
             />
@@ -262,7 +266,9 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
               products={products}
               categories={categories}
               settings={settings}
+              staffConsumptions={staffConsumptions}
               onNavigateToHistory={() => setActiveTab('history')}
+              onNavigateToStaffConsumptions={() => setActiveTab('staff_consumptions')}
             />
           </div>
         );
@@ -275,6 +281,17 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
               onUpdatePromotions={onUpdatePromotions}
               products={products}
               categories={categories}
+            />
+          </div>
+        );
+
+      case 'staff_consumptions':
+        return (
+          <div className="h-full animate-in fade-in slide-in-from-right-4 duration-500">
+            <AdminStaffConsumptionsView
+              staffConsumptions={staffConsumptions}
+              users={users}
+              settings={settings}
             />
           </div>
         );
@@ -299,6 +316,7 @@ const AdminCRM: React.FC<AdminCRMProps> = ({
             { id: 'analytics', label: 'Analíticas', icon: <Icons.Chart size={18} /> },
             { id: 'history', label: 'Ventas', icon: <Icons.TrendingUp size={18} /> },
             { id: 'cash', label: 'Cierres de Caja', icon: <Icons.Lock size={18} /> },
+            { id: 'staff_consumptions', label: 'Consumo Staff', icon: <Icons.Coffee size={18} /> },
             { id: 'promotions', label: 'Promociones', icon: <Icons.Tag size={18} /> },
             { id: 'inventory', label: 'Inventario', icon: <Icons.Layers size={18} /> },
             { id: 'products', label: 'Productos', icon: <Icons.Package size={18} /> },

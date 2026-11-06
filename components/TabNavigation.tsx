@@ -18,6 +18,7 @@ interface TabNavigationProps {
   hasOpenCashShift: boolean;
   onOpenCashShift: () => void;
   onCloseCashShift: () => void;
+  onOpenStaffConsumption?: () => void;
 }
 
 const TabNavigation: React.FC<TabNavigationProps> = ({ 
@@ -33,7 +34,8 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   onLogout,
   hasOpenCashShift,
   onOpenCashShift,
-  onCloseCashShift
+  onCloseCashShift,
+  onOpenStaffConsumption
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [adminDrawerOpen, setAdminDrawerOpen] = useState(true);
@@ -63,8 +65,9 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
     { id: 'pos', icon: <Icons.Cart />, label: 'Venta' },
     { id: 'tables', icon: <Icons.Layout />, label: 'Mesas' },
     { id: 'dispatch', icon: <Icons.ChefHat />, label: 'Cocina', badge: pendingCount },
+    { id: 'staff', icon: <Icons.Coffee size={18} />, label: 'Staff' },
     { id: 'central', icon: <Icons.Activity />, label: 'Central' }
-  ].filter(tab => permissions.includes(tab.id as ViewState));
+  ].filter(tab => permissions.includes(tab.id as ViewState) || (tab.id === 'staff' && (currentUser?.role === 'Admin' || currentUser?.role === 'Caja' || permissions.includes('pos'))));
 
   const handleTabClick = (id: string) => {
     onViewChange(id as ViewState);
@@ -215,6 +218,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                             { id: 'overview', label: 'Dashboard', icon: <Icons.Activity size={14} /> },
                             { id: 'history', label: 'Ventas', icon: <Icons.TrendingUp size={14} /> },
                             { id: 'cash', label: 'Cierres de Caja', icon: <Icons.Lock size={14} /> },
+                            { id: 'staff_consumptions', label: 'Consumo Staff', icon: <Icons.Coffee size={14} /> },
                             { id: 'products', label: 'Productos', icon: <Icons.Package size={14} /> },
                             { id: 'categories', label: 'Categorías', icon: <Icons.Tag size={14} /> },
                             { id: 'tables', label: 'Mesas', icon: <Icons.Layers size={14} /> },

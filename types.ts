@@ -7,6 +7,7 @@ export interface Ingredient {
   stock: number;
   minStock: number;
   unit: 'g' | 'ml' | 'unit';
+  cost?: number;
   updatedAt?: string;
 }
 
@@ -35,6 +36,8 @@ export interface Product {
   id: string;
   name: string;
   price: number;
+  cost?: number;
+  stock?: number;
   category: Category;
   modifierGroups?: ModifierGroup[];
   hasCombo?: boolean;
@@ -225,8 +228,8 @@ export interface StoreSettings {
   showTicketFooterMsg?: boolean;
 }
 
-export type ViewState = 'pos' | 'dispatch' | 'central' | 'tables' | 'login' | 'cash_audit';
-export type AdminTabType = 'overview' | 'analytics' | 'history' | 'cash' | 'products' | 'promotions' | 'categories' | 'inventory' | 'tables' | 'users' | 'roles' | 'shifts' | 'general';
+export type ViewState = 'pos' | 'dispatch' | 'central' | 'tables' | 'staff' | 'login' | 'cash_audit';
+export type AdminTabType = 'overview' | 'analytics' | 'history' | 'cash' | 'staff_consumptions' | 'products' | 'promotions' | 'categories' | 'inventory' | 'tables' | 'users' | 'roles' | 'shifts' | 'general';
 
 export interface UserRole {
   name: string;
@@ -246,4 +249,40 @@ export interface Table {
   name: string;
   status: 'free' | 'occupied' | 'reserved';
   currentOrderId?: string;
+}
+
+export type ConsumptionReason = 
+  | 'Turno de trabajo'
+  | 'Cortesía administrativa'
+  | 'Evento especial'
+  | 'Merma de barra'
+  | 'Degustación'
+  | 'Cierre masivo de barra';
+
+export interface StaffConsumptionItem {
+  productId: string;
+  productName: string;
+  category: string;
+  quantity: number;
+  unitPrice: number; // Retail commercial value
+  unitCost: number;  // Real accounting cost
+  totalRetailValue: number; // quantity * unitPrice
+  totalCostValue: number;   // quantity * unitCost
+}
+
+export interface StaffConsumption {
+  id: string;
+  date: string;
+  cashShiftId?: string;
+  beneficiaryName: string;
+  beneficiaryUserId?: string;
+  authorizedBy: string;
+  reason: ConsumptionReason;
+  notes?: string;
+  mode: 'individual' | 'bulk_closing';
+  items: StaffConsumptionItem[];
+  totalRetailValue: number;
+  totalCostValue: number;
+  totalItemsCount: number;
+  updatedAt?: string;
 }

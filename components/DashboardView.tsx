@@ -14,7 +14,7 @@ import {
   Legend, 
   CartesianGrid 
 } from 'recharts';
-import { Order, Product, StoreSettings, PaymentMethod } from '../types';
+import { Order, Product, StoreSettings, PaymentMethod, StaffConsumption } from '../types';
 import { Icons } from '../constants';
 
 interface DashboardViewProps {
@@ -22,7 +22,9 @@ interface DashboardViewProps {
   products: Product[];
   categories: string[];
   settings: StoreSettings;
+  staffConsumptions?: StaffConsumption[];
   onNavigateToHistory?: () => void;
+  onNavigateToStaffConsumptions?: () => void;
 }
 
 type TimeRangePreset = '7days' | 'today' | 'month' | 'all';
@@ -50,7 +52,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   products,
   categories,
   settings,
-  onNavigateToHistory
+  staffConsumptions = [],
+  onNavigateToHistory,
+  onNavigateToStaffConsumptions
 }) => {
   // Global Time Range state for charts
   const [timeRange, setTimeRange] = useState<TimeRangePreset>('7days');
@@ -431,6 +435,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
   }, [selectedDay]);
 
+  // Filtered Staff Consumptions for the active range
+  const rangeStaffStats = useMemo(() => {
+    const now = new Date();
+    const todayStr = getTodayISOString();
+
+    const filtered = staffConsumptions.filter(c => {
+      const cDateStr = c.date ? c.date.split('T')[0] : '';
+      if (timeRange === 'today') {
+        return cDateStr === todayStr;
+      }
+      if (timeRange === '7days') {
+        const d = new Date(c.date).getTime();
+        return (now.getTime() - d) <= (7 * 24 * 60 * 60 * 1000);
+      }
+      if (timeRange === 'month') {
+        const d = new Date(c.date).getTime();
+        return (now.getTime() - d) <= (30 * 24 * 60 * 60 * 1000);
+      }
+      return true;
+    });
+
+    const totalCost = filtered.reduce((s, c) => s + c.totalCostValue, 0);
+    const totalRetail = filtered.reduce((s, c) => s + c.totalRetailValue, 0);
+    const totalItems = filtered.reduce((s, c) => s + c.totalItemsCount, 0);
+
+    return { filtered, totalCost, totalRetail, totalItems, count: filtered.length };
+  }, [staffConsumptions, timeRange]);
+
   return (
     <div className="space-y-10 animate-in fade-in duration-500 pb-16">
       {/* Top Header & Range Switcher */}
@@ -474,8 +506,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </header>
 
-      {/* Primary KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Primary KPI Row (5 Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
         <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 flex flex-col justify-between">
           <div className="flex items-center space-x-4 mb-3">
             <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-md">
@@ -548,8 +580,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Platos y bebidas totales
+            Platos y bebidas comerciales
           </p>
+        </div>
+
+        <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] shadow-xl border border-slate-800 flex flex-col justify-between">
+          <div className="flex items-center space-x-4 mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-md">
+              <Icons.Coffee size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
+                Consumo Staff / Merma
+              </p>
+              <p className="text-2xl font-black text-amber-400 tracking-tighter tabular-nums">
+                {formatCurrency(rangeStaffStats.totalCost)}
+              </p>
+            </div>
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            {rangeStaffStats.totalItems} arts • {rangeStaffStats.count} vales (Valor {formatCurrency(rangeStaffStats.totalRetail)})
+          </p>
+          {onNavigateToStaffConsumptions && (
+            <button
+              onClick={onNavigateToStaffConsumptions}
+              className="mt-3 text-[10px] font-black uppercase tracking-wider text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors self-start cursor-pointer"
+            >
+              <span>Ver Detalle y Auditoría de Personal ➔</span>
+            </button>
+          )}
         </div>
       </div>
 

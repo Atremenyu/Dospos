@@ -531,6 +531,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({
     { id: 'pos', label: 'Venta (POS)' },
     { id: 'tables', label: 'Mesas' },
     { id: 'dispatch', label: 'Cocina (Dispatch)' },
+    { id: 'staff', label: 'Consumo Staff' },
     { id: 'central', label: 'Centro de Control (CRM)' },
     { id: 'cash_audit', label: 'Auditoría de Caja' },
   ];

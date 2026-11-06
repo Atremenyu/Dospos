@@ -1,4 +1,4 @@
-import { Product, Order, Category, Table, User, Shift, CashShift, UserRole, StoreSettings, Ingredient, Promotion } from '../types';
+import { Product, Order, Category, Table, User, Shift, CashShift, UserRole, StoreSettings, Ingredient, Promotion, StaffConsumption } from '../types';
 
 export function generateSecureId(prefix = 'ord'): string {
   const timestamp = Date.now();
@@ -21,6 +21,7 @@ const KEYS = {
   ROLES: 'dospos_roles',
   INGREDIENTS: 'dospos_ingredientes',
   PROMOTIONS: 'dospos_promociones',
+  STAFF_CONSUMPTIONS: 'dospos_staff_consumptions',
 };
 
 const API_MAP: Record<string, string> = {
@@ -35,6 +36,7 @@ const API_MAP: Record<string, string> = {
   [KEYS.ROLES]: 'roles',
   [KEYS.INGREDIENTS]: 'ingredients',
   [KEYS.PROMOTIONS]: 'promotions',
+  [KEYS.STAFF_CONSUMPTIONS]: 'staffConsumptions',
   [KEYS.RESTAURANT_NAME]: 'restaurantName',
   [KEYS.EVENT_TYPE]: 'eventType',
 };
@@ -243,6 +245,13 @@ export const storage = {
   savePromotions: (promotions: Promotion[]) => {
     localStorage.setItem(KEYS.PROMOTIONS, JSON.stringify(promotions));
     saveToServer(KEYS.PROMOTIONS, promotions);
+  },
+  getStaffConsumptions: (): StaffConsumption[] => {
+    return safeParse(localStorage.getItem(KEYS.STAFF_CONSUMPTIONS), []);
+  },
+  saveStaffConsumptions: (consumptions: StaffConsumption[]) => {
+    localStorage.setItem(KEYS.STAFF_CONSUMPTIONS, JSON.stringify(consumptions));
+    saveToServer(KEYS.STAFF_CONSUMPTIONS, consumptions);
   },
   saveBulk: async (data: Record<string, any>) => {
     lastWriteTime = Date.now();

@@ -1,4 +1,4 @@
-import { Order, CashShift, StoreSettings, CategorySalesSummary, CategoryProductSale, Product } from '../types';
+import { Order, CashShift, StoreSettings, CategorySalesSummary, CategoryProductSale, Product, StaffConsumption } from '../types';
 import { storage } from './storage';
 import { numberToWordsSpanish } from '../utils/numberToWords';
 import {
@@ -862,6 +862,126 @@ export const printCashShiftTicketHTML = (shift: CashShift, restaurantName: strin
       <div style="margin-top: 25px; text-align: center;">
         <div style="border-top: 1px solid #000; width: 80%; margin: 0 auto 3px auto;"></div>
         <div style="font-size: 9.5px;">Firma del Cajero</div>
+      </div>
+
+      <div style="height: 12mm;"></div>
+    </body>
+    </html>
+  `;
+
+  doc.open();
+  doc.write(htmlContent);
+  doc.close();
+
+  setTimeout(() => {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+    setTimeout(() => {
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe);
+      }
+    }, 45000);
+  }, 250);
+};
+
+/**
+ * Imprime una comanda de consumo interno / cortesía para barra sin datos fiscales ni monetarios de venta
+ */
+export const printStaffConsumptionTicketHTML = (
+  consumption: StaffConsumption,
+  settingsOrName?: StoreSettings | string
+) => {
+  const settings = resolveSettings(settingsOrName);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'absolute';
+  iframe.style.width = '0px';
+  iframe.style.height = '0px';
+  iframe.style.border = 'none';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document;
+  if (!doc) return;
+
+  const dateStr = new Date(consumption.date).toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Comanda Consumo Staff</title>
+      <style>
+        @page { size: 80mm auto; margin: 0; }
+        body {
+          font-family: 'Courier New', Courier, monospace;
+          width: 72mm;
+          margin: 0 auto;
+          padding: 3mm 1mm;
+          font-size: 11px;
+          line-height: 1.25;
+          color: #000;
+          background: #fff;
+        }
+        .center { text-align: center; }
+        .bold { font-weight: bold; }
+        .divider { border-bottom: 1px dashed #000; margin: 5px 0; }
+        .double-divider { border-bottom: 2px solid #000; margin: 6px 0; }
+        .row { display: flex; justify-content: space-between; }
+        .badge {
+          display: inline-block;
+          border: 2px solid #000;
+          padding: 3px 6px;
+          font-size: 12px;
+          font-weight: 900;
+          margin: 4px 0;
+          text-transform: uppercase;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="center">
+        <div class="bold" style="font-size: 14px;">${settings.name || 'DOSPOS'}</div>
+        <div class="badge">VALE DE BARRA / STAFF</div>
+        <div style="font-size: 9.5px;">*** NO FISCAL - CONSUMO INTERNO ***</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="font-size: 10px;">
+        <div class="row"><span>Fecha:</span><span>${dateStr}</span></div>
+        <div class="row"><span>Beneficiario:</span><span class="bold">${consumption.beneficiaryName}</span></div>
+        <div class="row"><span>Autorizado por:</span><span>${consumption.authorizedBy}</span></div>
+        <div class="row"><span>Motivo:</span><span>${consumption.reason}</span></div>
+        ${consumption.notes ? `<div class="row"><span>Notas:</span><span>${consumption.notes}</span></div>` : ''}
+      </div>
+
+      <div class="double-divider"></div>
+
+      <div class="bold" style="font-size: 10.5px; margin-bottom: 4px;">DESPACHO DE PRODUCTOS:</div>
+      ${consumption.items.map(item => `
+        <div class="row" style="margin-bottom: 2px;">
+          <span class="bold">${item.quantity}x ${item.productName}</span>
+          <span style="font-size: 9.5px;">[${item.category}]</span>
+        </div>
+      `).join('')}
+
+      <div class="divider"></div>
+
+      <div class="row bold" style="font-size: 11px;">
+        <span>TOTAL UNIDADES:</span>
+        <span>${consumption.totalItemsCount} pzas</span>
+      </div>
+
+      <div style="margin-top: 25px; text-align: center;">
+        <div style="border-top: 1px solid #000; width: 70%; margin: 0 auto 3px auto;"></div>
+        <div style="font-size: 9.5px;">Firma de Recibido / Barra</div>
       </div>
 
       <div style="height: 12mm;"></div>
